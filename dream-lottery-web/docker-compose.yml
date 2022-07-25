@@ -1,0 +1,14 @@
+version: "3.6"
+
+services:
+  dream-lottery-web:
+    image: midaug/dream-lottery-web:0.0.2
+    container_name: dream-lottery-web
+    network_mode: bridge
+    environment:
+      - BAIDU_OCR_APPID=111
+      - BAIDU_OCR_APPKEY=222
+      - BAIDU_OCR_SECRET=333
+      - OPTS_OTHER=-Dpaddle.ocr.url=http://dsm-nc.midaug.win:55000/ocr
+    ports:
+      - 8080:8080
