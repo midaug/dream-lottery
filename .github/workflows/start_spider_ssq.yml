@@ -1,0 +1,76 @@
+# This is a basic workflow to help you get started with Actions
+
+name: start_spider_ssq
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  # schedule:
+  # - cron: '0 0/1 * * *'
+  repository_dispatch:
+    types: [start_spider_ssq]  
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    outputs:
+      SPIDER_DATA_IS_UPDATE: ${{ steps.commit_update_data.outputs.is_update}}
+    steps:
+      # 输出IP
+      - name: IP
+        run: sudo curl ifconfig.me
+      # 设置服务器时区为东八区 
+      - name: Set time zone
+        run: sudo timedatectl set-timezone 'Asia/Shanghai'
+      
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout
+        uses: actions/checkout@v2
+      
+      # 使用python环境
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v2
+        with:
+          # Semantic version range syntax or exact version of a Python version
+          python-version: '3.x'
+          # Optional - x64 or x86 architecture, defaults to x64
+          architecture: 'x64'
+      # 打印pyton版本
+      - name: Display Python version
+        run: python -c "import sys; print(sys.version)"
+
+      - name: install python libs
+        run: |
+          pip3 install requests
+          pip3 install lxml 
+      # 执行python脚本
+      - name: start python
+        run: python spider_ssq.py
+      # git 提交文件
+      - name: Commit files
+        id : commit_update_data
+        run: |
+          git config --local user.email "days0814@gmail.com"
+          git config --local user.name "midaug"
+          git add .
+          git commit -m "`date '+%Y-%m-%d %H:%M:%S'` , spider_ssq.py start" && echo "::set-output name=is_update::yes" || echo "::set-output name=is_update::no"
+      # 推送到github仓库
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+  sync2gitee:
+    needs: build   
+    if: ${{ needs.build.outputs.SPIDER_DATA_IS_UPDATE == 'yes' }}
+    uses: midaug/dream-lottery/.github/workflows/sync2gitee.yml@main
+    secrets: 
+      GITEE_PRIVATE_KEY: ${{ secrets.GITEE_PRIVATE_KEY }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_USER: ${{ secrets.GITEE_USER }}
