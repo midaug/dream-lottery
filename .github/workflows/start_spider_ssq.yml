@@ -59,7 +59,7 @@ jobs:
           git config --local user.email "days0814@gmail.com"
           git config --local user.name "midaug"
           git add .
-          git commit -m "`date '+%Y-%m-%d %H:%M:%S'` , spider_ssq.py start" && echo "::set-output name=is_update::yes" || echo "::set-output name=is_update::no"
+          git commit -m "`date '+%Y-%m-%d %H:%M:%S'` , spider_ssq.py start" && echo "is_update=yes" >> $GITHUB_OUTPUT || echo "is_update=no" >> $GITHUB_OUTPUT
       # 推送到github仓库
       - name: Push changes
         uses: ad-m/github-push-action@master
