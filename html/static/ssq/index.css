@@ -1,0 +1,87 @@
+
+.bd-placeholder-img {
+	font-size: 1.125rem;
+	text-anchor: middle;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	user-select: none;
+}
+
+@media (min-width: 768px) {
+	.bd-placeholder-img-lg {
+		font-size: 3.5rem;
+	}
+}
+
+.ocr-ssq-item {
+    min-width: 345px;
+}
+.ocr-ssq-item h6 {
+    text-align: left;
+}
+.ocr-ssq-item .card-text span {
+    font-size: 12px;
+    padding: 3px;
+    font-family: monospace;
+}
+
+.ocr-ssq-item .red {
+    color: black;
+	border: 1px solid red;
+}
+
+.ocr-ssq-item .blue {
+    color: black;
+	border: 1px solid #0d6efd;
+}
+
+.ocr-ssq-item .err {
+	color: #fff;
+	background-color: black;
+	border: 1px solid black;
+}
+
+.ocr-ssq-item .redf {
+	color: #fff;
+	background-color: red;
+	border: 1px solid red;
+}
+
+.ocr-ssq-item .bluef {
+	color: #fff;
+	background-color: #0d6efd;
+	border: 1px solid #0d6efd;
+}
+
+.ssq-item .red {
+	color: #fff;
+	background-color: red;
+	border-color: red;
+	border-radius: 25px;
+	padding: 5px;
+	font-family: monospace;
+}
+
+.ssq-item .blue {
+	color: #fff;
+	background-color: #0d6efd;
+	border-color: #0d6efd;
+	border-radius: 25px;
+	padding: 5px;
+	font-family: monospace;
+}
+
+.ssq-item {
+    min-width: 355px;
+}
+.ssq-item .shadow-sm {
+    min-width: 345px;
+}
+
+.upload-box1 {
+    min-width: 345px;
+    width: 100%;
+    height: 50px;
+    border: 1px dashed;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' font-size='18' fill='%236699ff' text-anchor='middle' dominant-baseline='middle'%3E上传图片识别%3C/text%3E%3C/svg%3E") no-repeat center;
+}
