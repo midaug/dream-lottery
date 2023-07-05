@@ -129,7 +129,7 @@
             loadSsqEl(newArr, e);
         }
         function loadSsqData() {
-            $.get(dataUrl, function (data) {
+            $.get(dataUrl + "?v=" + new Date().getTime(), function (data) {
                 var arr = data.split("\n");
                 $("#data-update-time").html(formatDateTime(parseInt(arr[0].split(",")[3])));
                 for (let i = 1; i < arr.length; i++) {
