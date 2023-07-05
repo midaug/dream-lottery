@@ -8,7 +8,8 @@
     <!-- CSS only -->
     <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/css/bootstrap.min.css"
         rel="stylesheet" async="async">
-    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/index.css" rel="stylesheet" async="async">
+    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/index.css" rel="stylesheet"
+        async="async">
 </head>
 
 <body>
@@ -67,6 +68,7 @@
     async="async"></script>
 <script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/jquery.min.3.1.0.js"></script>
 <script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js' async="async"></script>
+<script src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/compressor.min.js' async="async"></script>
 <script>
     var dataUrl = 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery/spider_data/ssq.txt';
     var ssqList = [];
@@ -163,10 +165,9 @@
             }
         });
     });
-
-
-
 </script>
+
+
 <script>
     var bel = $("#dataBody");
     function vNum(num, s, e) {
@@ -174,8 +175,8 @@
         var n = parseInt(num);
         return n >= s && n <= e;
     }
-
-    function updateOcrData(data) {
+    //渲染识别结果
+    function updateOcrData(data, rc) {
         var title = '<h6 class="card-subtitle mb-2 text-muted"><span>' + data.code + '</span>期 开奖日期: ' + data.drawDate + '</h6>';
         var tags = ['<div class="card shadow-sm"><div class="card-body">', title];
         for (var i in data.noteDtos) {
@@ -195,34 +196,228 @@
             tags.push('<span>' + note['reward'] + '</span>');
             tags.push('<span>' + note['bonus'] + '</span>');
             tags.push('</h6>');
+
         }
+
+        tags.push('<h6 class="card-subtitle mb-2 text-muted" style="font-size: 0.75rem; margin-top: 1rem;">压缩耗时: ' + rc["压缩耗时"] + '</h6>');
+        tags.push('<h6 class="card-subtitle mb-2 text-muted" style="font-size: 0.75rem;">压缩前大小: ' + rc["压缩前大小"] + '</h6>');
+        tags.push('<h6 class="card-subtitle mb-2 text-muted" style="font-size: 0.75rem;">压缩后大小: ' + rc["压缩后大小"] + '</h6>');
+        tags.push('<h6 class="card-subtitle mb-2 text-muted" style="font-size: 0.75rem;">压缩比: ' + rc["压缩比"] + '</h6>');
+        tags.push('<h6 class="card-subtitle mb-2 text-muted" style="font-size: 0.75rem;">识别耗时: ' + rc["识别耗时"] + '</h6>');
         tags.push('</div></div>');
         bel.html(tags.join('\n'));
+        $("#up-btn").removeAttr("disabled");
     }
 
+    function zzpp(str, zzs) {
+        for (var i = 0; i < zzs.length; i++) {
+            var e = zzs[i];
+            var vs = str.match(e);
+            if (vs && vs.length > 0) {
+                return vs[0];
+            }
+        }
+    }
+    //识别期号
+    function zzppCode(txt) {
+        var code = zzpp(txt, [/20[012]\d{4}-\d{3}/g]);
+        if (code) {
+            return code.split("-")[0];
+        }
+        return zzpp(txt, [/20[012]\d{4}/g]);
+    }
+    //匹配中奖
+    function ppzj(ssqData, hm) {
+        var reds = [ssqData.red1, ssqData.red2, ssqData.red3, ssqData.red4, ssqData.red5, ssqData.red6]
+        var zm = hm.slice(0, 1);
+        var red1 = hm.slice(1, 3);
+        var red2 = hm.slice(3, 5);
+        var red3 = hm.slice(5, 7);
+        var red4 = hm.slice(7, 9);
+        var red5 = hm.slice(9, 11);
+        var red6 = hm.slice(11, 13);
+        var blue1 = hm.slice(13, 15);
+        var data = {
+            "code": ssqData.code,
+            "red1": red1,
+            "red2": red2,
+            "red3": red3,
+            "red4": red4,
+            "red5": red5,
+            "red6": red6,
+            "blue1": blue1,
+            "drawDate": ssqData.drawDate,
+            "red1f": false,
+            "red2f": false,
+            "red3f": false,
+            "red4f": false,
+            "red5f": false,
+            "red6f": false,
+            "blue1f": false,
+            "reward": "无",
+            "bonus": "0",
+            "zm": zm
+        }
+
+        var redNum = 0;
+        for (let i = 1; i <= 6; i++) {
+            if (reds.indexOf(data["red" + i]) > -1) {
+                data["red" + i + "f"] = true;
+                redNum++;
+            }
+        }
+        if (data["blue1"] == ssqData["blue1"]) {
+            data["blue1f"] = true;
+        }
+        if (redNum == 6 && data["blue1f"]) {
+            data["reward"] = "一等奖";
+            data["bonus"] = ssqData["bonus1"];
+        } else if (redNum == 6) {
+            data["reward"] = "二等奖";
+            data["bonus"] = ssqData["bonus2"];
+        } else if (redNum == 5 && data["blue1f"]) {
+            data["reward"] = "三等奖";
+            data["bonus"] = "3000";
+        } else if (redNum == 5 || (redNum == 4 && data["blue1f"])) {
+            data["reward"] = "四等奖";
+            data["bonus"] = "200";
+        } else if (redNum == 4 || (redNum == 3 && data["blue1f"])) {
+            data["reward"] = "五等奖";
+            data["bonus"] = "10";
+        } else if (data["blue1f"]) {
+            data["reward"] = "六等奖";
+            data["bonus"] = "5";
+        }
+        return data;
+    }
+
+    //开始解析
+    // Bevk: W ER- LIRS 31050671
+    // 6E15-5806-F294-CAF6-C1B9/63707293/56CC1
+    // A.04 07 16 23 25 29-16 (1
+    // B.06 15 16 17 21 26-12 (1
+    // C.01 05 11 26 30 31-05 (1
+    // D.06 13 19 22 26 32-07 (1
+    // E.08 12 26 27 30 32-13 (1
+    // F1 40 2022082 22-07-19 air10,¢
+    // 4801 2022082-115 22-07-18 20:47:49 i
+    // JH 2R 14892
+    // TR N2 25 R4 S0 HTNR3 . 60 U1
+
+    function ocrSsq(txt, rc) {
+        console.log(txt);
+        //提取期号
+        var code = zzppCode(txt);
+        if (!code) {
+            bel.html("找不到期号！ <br>" + txt);
+            return;
+        }
+        var ssqData = ssqMap[code];
+        if (!ssqData) {
+            bel.html("期号识别错误！-> " + code);
+            return;
+        }
+        console.log(code, ssqData);
+        var zjData = {
+            code: code,
+            drawDate: ssqData.drawDate
+        }
+        //删除大写字母和数字以外的字符
+        var nTxt = txt.replace(/[^A-Z0-9]/gi, '');
+        console.log(nTxt);
+        //按A[0-9]{14}类似的规则提取号码
+        var a = zzpp(nTxt, [/A[0-9]{14}/g]);
+        var b = zzpp(nTxt, [/B[0-9]{14}/g]);
+        var c = zzpp(nTxt, [/C[0-9]{14}/g]);
+        var d = zzpp(nTxt, [/D[0-9]{14}/g]);
+        var e = zzpp(nTxt, [/E[0-9]{14}/g]);
+        console.log(a, b, c, d, e);
+        //匹配是否中奖
+        var noteDtos = [];
+        if (a) {
+            noteDtos.push(ppzj(ssqData, a));
+        }
+        if (b) {
+            noteDtos.push(ppzj(ssqData, b));
+        }
+        if (c) {
+            noteDtos.push(ppzj(ssqData, c));
+        }
+        if (d) {
+            noteDtos.push(ppzj(ssqData, d));
+        }
+        if (e) {
+            noteDtos.push(ppzj(ssqData, e));
+        }
+        zjData["noteDtos"] = noteDtos;
+        updateOcrData(zjData, rc);
+    }
+
+</script>
+
+
+<script>
     $("#up-btn").click(function () {
         $("#input-img").click();
+        // ocrSsq(`
+        // Bevk: W ER- LIRS 31050671
+        // 6E15-5806-F294-CAF6-C1B9/63707293/56CC1
+        // A.04 07 16 23 25 29-16 (1
+        // B.06 15 16 17 21 26-12 (1
+        // C.01 05 11 26 30 31-05 (1
+        // D.06 13 19 22 26 32-07 (1
+        // E.08 12 26 27 30 32-13 (1
+        // F1 40 2022082 22-07-19 air10,¢
+        // 4801 2022082-115 22-07-18 20:47:49 i
+        // JH 2R 14892
+        // TR N2 25 R4 S0 HTNR3 . 60 U1
+        // `);
     });
+
+    function formatBytes(a, b = 2, k = 1024) { with (Math) { let d = floor(log(a) / log(k)); return 0 == a ? "0 Bytes" : parseFloat((a / pow(k, d)).toFixed(max(0, b))) + " " + ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"][d] } }
+
+
 
     language = "eng"
     function recognizeFile(file) {
+        $("#up-btn").attr("disabled", 'disabled');
+        const t0 = window.performance.now();
         bel.html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/images/loading.gif' />");
-        Tesseract.recognize(
-            file, language,
-            {
-                workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
-                langPath: 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/tesseract.js/lang/4.0.0',
-                corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4',
-                logger: m => console.log(m)
-            }
-        ).catch(err => {
-            console.error(err);
-        }).then(result => {
-            console.log(result.data.text);
-            bel.html(result.data.text);
-        })
-    }
+        new Compressor(file, {
+            quality: 0.9,
+            maxWidth: 1280,
+            success: function (newFile) {
+                const t1 = window.performance.now();
+                const rc = {
+                    "压缩耗时": ((t1 - t0) / 1000).toFixed(3) + "秒",
+                    "压缩前大小": formatBytes(file.size),
+                    "压缩后大小": formatBytes(newFile.size),
+                    "压缩比": (newFile.size / file.size * 100).toFixed(2) + "%"
+                };
+                Tesseract.recognize(
+                    newFile, language,
+                    {
+                        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+                        langPath: 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/tesseract.js/lang/4.0.0',
+                        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4',
+                        // logger: m => console.log(m)
+                    }
+                ).catch(err => {
+                    console.error(err);
+                    $("#up-btn").removeAttr("disabled");
+                }).then(result => {
+                    rc["识别耗时"] = ((window.performance.now() - t1) / 1000).toFixed(3) + "秒";
+                    // bel.html(result.data.text);
+                    ocrSsq(result.data.text, rc);
+                });
+            },
+            error(err) {
+                console.error(err);
+                $("#up-btn").removeAttr("disabled");
+            },
+        });
 
+    }
 </script>
 
 </html>
