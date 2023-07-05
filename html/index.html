@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SSQ-双色球开奖信息</title>
     <!-- CSS only -->
-    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/css/bootstrap.min.css"
+    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/bootstrap/css/bootstrap.min.css"
         rel="stylesheet" async="async">
-    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/index.css" rel="stylesheet"
+    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/index.css" rel="stylesheet"
         async="async">
 </head>
 
@@ -64,13 +64,13 @@
     </main>
 </body>
 <!-- JavaScript Bundle with Popper -->
-<script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/js/bootstrap.bundle.min.js"
+<script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/bootstrap/js/bootstrap.bundle.min.js"
     async="async"></script>
-<script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/jquery.min.3.1.0.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/jquery.min.3.1.0.js"></script>
 <script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js' async="async"></script>
-<script src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/compressor.min.js' async="async"></script>
+<script src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/compressor.min.js' async="async"></script>
 <script>
-    var dataUrl = 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery/spider_data/ssq.txt';
+    var dataUrl = 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery@main/spider_data/ssq.txt';
     var ssqList = [];
     var ssqMap = {};
     var lastIndex = 0;
@@ -382,7 +382,7 @@
     function recognizeFile(file) {
         $("#up-btn").attr("disabled", 'disabled');
         const t0 = window.performance.now();
-        bel.html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/images/loading.gif' />");
+        bel.html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/images/loading.gif' />");
         new Compressor(file, {
             quality: 0.9,
             maxWidth: 1280,
@@ -398,7 +398,7 @@
                     newFile, language,
                     {
                         workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
-                        langPath: 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/tesseract.js/lang/4.0.0',
+                        langPath: 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/tesseract.js/lang/4.0.0',
                         corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4',
                         // logger: m => console.log(m)
                     }
