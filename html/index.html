@@ -8,8 +8,105 @@
     <!-- CSS only -->
     <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/bootstrap/css/bootstrap.min.css"
         rel="stylesheet" async="async">
-    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/index.css" rel="stylesheet"
-        async="async">
+    <style>
+        .bd-placeholder-img {
+            font-size: 1.125rem;
+            text-anchor: middle;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            user-select: none;
+        }
+
+        @media (min-width: 768px) {
+            .bd-placeholder-img-lg {
+                font-size: 3.5rem;
+            }
+        }
+
+        .ocr-ssq-item {
+            min-width: 345px;
+        }
+
+        .ocr-ssq-item h6 {
+            text-align: left;
+        }
+
+        .ocr-ssq-item .card-text span {
+            font-size: 12px;
+            padding: 3px;
+            font-family: monospace;
+        }
+
+        .ocr-ssq-item .red {
+            color: black;
+            border: 1px solid red;
+        }
+
+        .ocr-ssq-item .blue {
+            color: black;
+            border: 1px solid #0d6efd;
+        }
+
+        .ocr-ssq-item .err {
+            color: #fff;
+            background-color: black;
+            border: 1px solid black;
+        }
+
+        .ocr-ssq-item .redf {
+            color: #fff;
+            background-color: red;
+            border: 1px solid red;
+        }
+
+        .ocr-ssq-item .bluef {
+            color: #fff;
+            background-color: #0d6efd;
+            border: 1px solid #0d6efd;
+        }
+
+        .ssq-item .red {
+            color: #fff;
+            background-color: red;
+            border-color: red;
+            border-radius: 25px;
+            padding: 5px;
+            font-family: monospace;
+        }
+
+        .ssq-item .blue {
+            color: #fff;
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+            border-radius: 25px;
+            padding: 5px;
+            font-family: monospace;
+        }
+
+        .ssq-item {
+            min-width: 355px;
+        }
+
+        .ssq-item .shadow-sm {
+            min-width: 345px;
+        }
+
+        .upload-box1 {
+            min-width: 345px;
+            width: 100%;
+            height: 50px;
+            border: 1px dashed;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' font-size='18' fill='%236699ff' text-anchor='middle' dominant-baseline='middle'%3E图片识别%3C/text%3E%3C/svg%3E") no-repeat center;
+        }
+
+        .upload-box1[disabled] {
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' font-size='18' fill='%23A9A9A9' text-anchor='middle' dominant-baseline='middle'%3E正在处理%3C/text%3E%3C/svg%3E") no-repeat center;
+        }
+
+        .upload-box1[init] {
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' font-size='18' fill='%23A9A9A9' text-anchor='middle' dominant-baseline='middle'%3E初始化中%3C/text%3E%3C/svg%3E") no-repeat center;
+        }
+    </style>
 </head>
 
 <body>
@@ -21,7 +118,7 @@
                     <div class="mb-3">
                         <input onchange="recognizeFile(this.files[0])" style="display: none;" class="form-control"
                             type="file" accept="image/*" id="input-img">
-                        <button id="up-btn" class="upload-box1" disabled></button>
+                        <button id="up-btn" class="upload-box1" disabled init></button>
                     </div>
                     <div id="dataBody" class="ocr-ssq-item">
 
@@ -68,13 +165,16 @@
     async="async"></script>
 <script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/jquery.min.3.1.0.js"></script>
 <script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js' async="async"></script>
-<script src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/compressor.min.js' async="async"></script>
+<script src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/compressor.min.js'
+    async="async"></script>
 <script>
     var dataUrl = 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery@main/spider_data/ssq.txt';
     var ssqList = [];
     var ssqMap = {};
     var lastIndex = 0;
     var dbj = 5;
+    var language = "eng"
+    var bel = $("#dataBody");
 
     function loadSsqEl(lists, last) {
         var ssqEl = $("#ssq-el");
@@ -122,6 +222,7 @@
     }
 
     $(document).ready(function () {
+        bel.html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/images/loading.gif' />");
         function scrollLoad(bj) {
             var s = lastIndex;
             var e = lastIndex + bj > ssqList.length ? ssqList.length : lastIndex + bj;
@@ -155,7 +256,25 @@
                     ssqMap[code] = obj;
                 }
                 scrollLoad(30);
-                $("#up-btn").removeAttr("disabled");
+                //初始化
+                Tesseract.recognize(
+                    "https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/dream-lottery-web/images/ssq.jpeg", language,
+                    {
+                        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+                        langPath: 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/tesseract.js/lang/4.0.0',
+                        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4',
+                        // logger: m => console.log(m)
+                    }
+                ).catch(err => {
+                    console.error(err);
+                }).then(result => {
+                    console.log("init Tesseract.js");
+                    if (result && result.data && result.data.text) {
+                        $("#up-btn").removeAttr("disabled");
+                        $("#up-btn").removeAttr("init");
+                        bel.html("");
+                    }
+                });
             });
         }
         loadSsqData();
@@ -169,7 +288,6 @@
 
 
 <script>
-    var bel = $("#dataBody");
     function vNum(num, s, e) {
         if (isNaN(num)) return false;
         var n = parseInt(num);
@@ -376,9 +494,6 @@
 
     function formatBytes(a, b = 2, k = 1024) { with (Math) { let d = floor(log(a) / log(k)); return 0 == a ? "0 Bytes" : parseFloat((a / pow(k, d)).toFixed(max(0, b))) + " " + ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"][d] } }
 
-
-
-    language = "eng"
     function recognizeFile(file) {
         $("#up-btn").attr("disabled", 'disabled');
         const t0 = window.performance.now();
