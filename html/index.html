@@ -4,10 +4,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Title</title>
+    <title>SSQ-双色球</title>
     <!-- CSS only -->
-    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/index.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/css/bootstrap.min.css"
+        rel="stylesheet" async="async">
+    <link href="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/index.css" rel="stylesheet" async="async">
 </head>
 
 <body>
@@ -19,7 +20,7 @@
                     <div class="mb-3">
                         <input onchange="recognizeFile(this.files[0])" style="display: none;" class="form-control"
                             type="file" accept="image/*" id="input-img">
-                        <div id="up-btn" class="upload-box1"></div>
+                        <button id="up-btn" class="upload-box1" disabled></button>
                     </div>
                     <div id="dataBody" class="ocr-ssq-item">
 
@@ -32,8 +33,8 @@
         <div class="album py-1 bg-light">
             <div class="container">
                 <h5 style="text-align: center">历史开奖信息</h5>
-                <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3">
-
+                <h5 style="text-align: center" id="data-update-time"></h5>
+                <div id="ssq-el" class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3">
                     <!-- <div th:each="ssq : ${ssqList}" class="col ssq-item">
                     <div class="card shadow-sm">
                         <div class="card-body">
@@ -62,9 +63,110 @@
     </main>
 </body>
 <!-- JavaScript Bundle with Popper -->
-<script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/bootstrap/js/bootstrap.bundle.min.js"
+    async="async"></script>
 <script src="https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/ssq/jquery.min.3.1.0.js"></script>
-<script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js'></script>
+<script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js' async="async"></script>
+<script>
+    var dataUrl = 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery/spider_data/ssq.txt';
+    var ssqList = [];
+    var ssqMap = {};
+    var lastIndex = 0;
+    var dbj = 5;
+
+    function loadSsqEl(lists, last) {
+        var ssqEl = $("#ssq-el");
+        for (let i = 0; i < lists.length; i++) {
+            var ssqCode = lists[i];
+            var ssq = ssqMap[ssqCode];
+            var htmlStr = `<div class="col ssq-item">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted"><span>${ssq.code}</span> 期</h6>
+                        <h6 class="card-text">
+                            <span class="red">${ssq.red1}</span>
+                            <span class="red">${ssq.red2}</span>
+                            <span class="red">${ssq.red3}</span>
+                            <span class="red">${ssq.red4}</span>
+                            <span class="red">${ssq.red5}</span>
+                            <span class="red">${ssq.red6}</span>
+                            <span class="blue">${ssq.blue1}</span>
+                        </h6>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">开奖日期：<span>${ssq.drawDate}</span></small>
+                        </div>
+                    </div>
+                </div>
+            </div> `
+            ssqEl.append(htmlStr);
+        }
+        lastIndex = last;
+    }
+
+    function formatDateTime(inputTime) {
+        var date = new Date(inputTime);
+        var y = date.getFullYear();
+        var m = date.getMonth() + 1;
+        m = m < 10 ? "0" + m : m;
+        var d = date.getDate();
+        d = d < 10 ? "0" + d : d;
+        var h = date.getHours();
+        h = h < 10 ? "0" + h : h;
+        var minute = date.getMinutes();
+        var second = date.getSeconds();
+        minute = minute < 10 ? "0" + minute : minute;
+        second = second < 10 ? "0" + second : second;
+        return y + "-" + m + "-" + d + " " + h + ":" + minute + ":" + second;
+    }
+
+    $(document).ready(function () {
+        function scrollLoad(bj) {
+            var s = lastIndex;
+            var e = lastIndex + bj > ssqList.length ? ssqList.length : lastIndex + bj;
+            var newArr = ssqList.slice(s, e);
+            loadSsqEl(newArr, e);
+        }
+        function loadSsqData() {
+            $.get(dataUrl, function (data) {
+                var arr = data.split("\n");
+                $("#data-update-time").html(formatDateTime(parseInt(arr[0].split(",")[3])));
+                for (let i = 1; i < arr.length; i++) {
+                    var ssqArr = arr[i].split(",");
+                    if (!ssqArr[0]) {
+                        continue;
+                    }
+                    var code = "20" + ssqArr[0];
+                    obj = {
+                        "code": code,
+                        "red1": ssqArr[1],
+                        "red2": ssqArr[2],
+                        "red3": ssqArr[3],
+                        "red4": ssqArr[4],
+                        "red5": ssqArr[5],
+                        "red6": ssqArr[6],
+                        "blue1": ssqArr[7],
+                        "bonus1": ssqArr[8],
+                        "bonus2": ssqArr[9],
+                        "drawDate": ssqArr[10]
+                    };
+                    ssqList.push(code);
+                    ssqMap[code] = obj;
+                }
+                scrollLoad(30);
+                $("#up-btn").removeAttr("disabled");
+            });
+        }
+        loadSsqData();
+        $(window).scroll(function () {
+            if ($(document).scrollTop() + $(window).height() >= $(document).height() - 50) {
+                scrollLoad(dbj);
+            }
+        });
+    });
+
+
+
+</script>
 <script>
     var bel = $("#dataBody");
     function vNum(num, s, e) {
@@ -104,7 +206,7 @@
 
     language = "eng"
     function recognizeFile(file) {
-        $("#dataBody").html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/images/loading.gif' />");
+        bel.html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery/html/static/images/loading.gif' />");
         Tesseract.recognize(
             file, language,
             {
@@ -117,11 +219,8 @@
             console.error(err);
         }).then(result => {
             console.log(result.data.text);
-            $("#dataBody").html(result.data.text);
+            bel.html(result.data.text);
         })
-
-        //https://cdn.jsdelivr.net/gh/midaug/dream-lottery/spider_data/ssq.txt
-
     }
 
 </script>
