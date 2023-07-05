@@ -428,11 +428,13 @@
         var code = zzppCode(txt);
         if (!code) {
             bel.html("找不到期号！ <br>" + txt);
+            $("#up-btn").removeAttr("disabled");
             return;
         }
         var ssqData = ssqMap[code];
         if (!ssqData) {
             bel.html("期号识别错误！-> " + code);
+            $("#up-btn").removeAttr("disabled");
             return;
         }
         console.log(code, ssqData);
