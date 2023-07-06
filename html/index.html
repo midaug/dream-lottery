@@ -24,7 +24,7 @@
         }
 
         .ocr-ssq-item {
-            min-width: 345px;
+            min-width: 285px;
         }
 
         .ocr-ssq-item h6 {
@@ -33,7 +33,7 @@
 
         .ocr-ssq-item .card-text span {
             font-size: 12px;
-            padding: 3px;
+            padding: 1px;
             font-family: monospace;
         }
 
@@ -84,15 +84,15 @@
         }
 
         .ssq-item {
-            min-width: 355px;
+            min-width: 300px;
         }
 
         .ssq-item .shadow-sm {
-            min-width: 345px;
+            min-width: 285px;
         }
 
         .upload-box1 {
-            min-width: 345px;
+            min-width: 285px;
             width: 100%;
             height: 50px;
             border: 1px dashed;
@@ -105,6 +105,13 @@
 
         .upload-box1[init] {
             background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' font-size='18' fill='%23A9A9A9' text-anchor='middle' dominant-baseline='middle'%3E初始化中%3C/text%3E%3C/svg%3E") no-repeat center;
+        }
+        #dataBody .card-body {
+            padding: 2px;
+        }
+        #dataBody .shadow-sm {
+            box-shadow: none!important;
+            border: none;
         }
     </style>
 </head>
@@ -175,6 +182,8 @@
     var dbj = 5;
     var language = "eng"
     var bel = $("#dataBody");
+
+    var testImg = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABMAAAAcBAMAAABxKJkqAAAABGdBTUEAALGPC/xhBQAAAAFzUkdCAK7OHOkAAAICaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJYTVAgQ29yZSA2LjAuMCI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnRpZmY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vdGlmZi8xLjAvIgogICAgICAgICAgICB4bWxuczpleGlmPSJodHRwOi8vbnMuYWRvYmUuY29tL2V4aWYvMS4wLyI+CiAgICAgICAgIDx0aWZmOk9yaWVudGF0aW9uPjE8L3RpZmY6T3JpZW50YXRpb24+CiAgICAgICAgIDxleGlmOlBpeGVsWERpbWVuc2lvbj40NjwvZXhpZjpQaXhlbFhEaW1lbnNpb24+CiAgICAgICAgIDxleGlmOlBpeGVsWURpbWVuc2lvbj4yODwvZXhpZjpQaXhlbFlEaW1lbnNpb24+CiAgICAgIDwvcmRmOkRlc2NyaXB0aW9uPgogICA8L3JkZjpSREY+CjwveDp4bXBtZXRhPgrf/1oMAAAALVBMVEX///+SPHa/jrG0eqOkXI6vcZ3Bk7TfyNnNpsKnY5Lp2OTHnbvy5++cUITVtcsrRIrgAAAAPUlEQVQY02NgoAfges7VnA5hMok0CgpugDAFJbcJykCZBgyFElDmAgZeISiTgYFTGKqNgYGVakxJOJMcAAAFdQegPHU0bAAAAABJRU5ErkJggg==`;
 
     function loadSsqEl(lists, last) {
         var ssqEl = $("#ssq-el");
@@ -257,8 +266,9 @@
                 }
                 scrollLoad(30);
                 //初始化
+                const t0 = window.performance.now();
                 Tesseract.recognize(
-                    "https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/dream-lottery-web/images/ssq.jpeg", language,
+                    testImg, language,
                     {
                         workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
                         langPath: 'https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/tesseract.js/lang/4.0.0',
@@ -268,7 +278,8 @@
                 ).catch(err => {
                     console.error(err);
                 }).then(result => {
-                    console.log("init Tesseract.js");
+                    const t1 = window.performance.now();
+                    console.log("init Tesseract.js", t1 - t0, result);
                     if (result && result.data && result.data.text) {
                         $("#up-btn").removeAttr("disabled");
                         $("#up-btn").removeAttr("init");
@@ -525,6 +536,7 @@
                 }).then(result => {
                     rc["识别耗时"] = ((window.performance.now() - t1) / 1000).toFixed(3) + "秒";
                     // bel.html(result.data.text);
+                    console.log(rc);
                     ocrSsq(result.data.text, rc);
                 });
             },
