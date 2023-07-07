@@ -49,9 +49,10 @@ jobs:
         run: |
           pip3 install requests
           pip3 install lxml 
+          pip3 install argparse 
       # 执行python脚本
       - name: start python
-        run: python spider_ssq.py
+        run: python spider_ssq.py -u ${{ secrets.SSQ_DATA_URL }}
       # git 提交文件
       - name: Commit files
         id : commit_update_data
