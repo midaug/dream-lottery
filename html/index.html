@@ -106,11 +106,13 @@
         .upload-box1[init] {
             background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' font-size='18' fill='%23A9A9A9' text-anchor='middle' dominant-baseline='middle'%3E初始化中%3C/text%3E%3C/svg%3E") no-repeat center;
         }
+
         #dataBody .card-body {
             padding: 2px;
         }
+
         #dataBody .shadow-sm {
-            box-shadow: none!important;
+            box-shadow: none !important;
             border: none;
         }
     </style>
@@ -175,7 +177,7 @@
 <script src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/ssq/compressor.min.js'
     async="async"></script>
 <script>
-    var dataUrl = 'https://gitee.com/midaug/dream-lottery/raw/main/spider_data/ssq.txt';
+    var dataUrl = 'https://100180.xyz/ssq/data.txt';
     var ssqList = [];
     var ssqMap = {};
     var lastIndex = 0;
@@ -229,7 +231,6 @@
         second = second < 10 ? "0" + second : second;
         return y + "-" + m + "-" + d + " " + h + ":" + minute + ":" + second;
     }
-
     $(document).ready(function () {
         bel.html("<img src='https://cdn.jsdelivr.net/gh/midaug/dream-lottery@v0/html/static/images/loading.gif' />");
         function scrollLoad(bj) {
@@ -239,6 +240,7 @@
             loadSsqEl(newArr, e);
         }
         function loadSsqData() {
+            console.log(window.ssqData);
             $.get(dataUrl + "?v=" + new Date().getTime(), function (data) {
                 var arr = data.split("\n");
                 $("#data-update-time").html(formatDateTime(parseInt(arr[0].split(",")[3])));
