@@ -17,9 +17,25 @@
             user-select: none;
         }
 
+        @media (min-width: 576px) {
+            .row-cols-sm-2>* {
+                flex: 0 0 auto;
+                width: 100%;
+            }
+        }
         @media (min-width: 768px) {
             .bd-placeholder-img-lg {
                 font-size: 3.5rem;
+            }
+            .row-cols-sm-2>* {
+                flex: 0 0 auto;
+                width: 50%;
+            }
+        }
+        @media (min-width: 992px) {
+            .row-cols-md-3>* {
+                flex: 0 0 auto;
+                width: 33.3333333333%;
             }
         }
 
@@ -139,7 +155,7 @@
         <div class="album py-1">
             <div class="container">
                 <h5 style="text-align: center">历史开奖信息</h5>
-                <h5 style="text-align: center" id="data-update-time"></h5>
+                <h6 style="text-align: center" id="data-update-time"></h6>
                 <div id="ssq-el" class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-3">
                     <!-- <div th:each="ssq : ${ssqList}" class="col ssq-item">
                     <div class="card shadow-sm">
