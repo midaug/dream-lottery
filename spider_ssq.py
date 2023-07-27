@@ -40,38 +40,6 @@ def start(url, url2):
 
     updateSum = 0
 
-    try:
-        response = requests.get(url)
-        response = response.text
-        selector = etree.HTML(response)
-        for i in selector.xpath('//tr[@class="t_tr1"]'):
-            datetime = replaceStr(i.xpath('td/text()')[0])
-            # 期数长度不符合要求时
-            if len(datetime) < 5:
-                continue
-            red = i.xpath('td/text()')[1:7]
-            blue = i.xpath('td/text()')[7]
-            prize1 = replaceStr(i.xpath('td/text()')[11])
-            prize2 = replaceStr(i.xpath('td/text()')[13])
-            drawdate = replaceStr(i.xpath('td/text()')[15])
-            #red.insert(0,'20'+datetime)
-            red.insert(0,datetime)
-            red.append(blue)
-            red.append(prize1)
-            red.append(prize2)
-            red.append(drawdate)
-            val = '{}\n'.format(','.join(red))
-            # 值异常
-            if len(val) < 26:
-                continue
-            # 已经爬取过的数据不更新
-            if datetime in ssqs and ssqs[datetime] == val:
-                continue
-            ssqs[datetime] = val
-            updateSum = updateSum + 1
-    except IOError:
-        print('Failed requests error, url={} \n'.format(url))
-
 
     try:
         response = requests.get(url=url2,verify=False)
@@ -101,8 +69,44 @@ def start(url, url2):
                 continue
             ssqs[datetime] = val
             updateSum = updateSum + 1
+        
+        print('url2 updateSum = {} \n'.format(str(updateSum)))
     except IOError:
         print('Failed requests error, url2={} \n'.format(url2))
+
+    try:
+        response = requests.get(url)
+        response = response.text
+        selector = etree.HTML(response)
+        for i in selector.xpath('//tr[@class="t_tr1"]'):
+            datetime = replaceStr(i.xpath('td/text()')[0])
+            # 期数长度不符合要求时
+            if len(datetime) < 5:
+                continue
+            red = i.xpath('td/text()')[1:7]
+            blue = i.xpath('td/text()')[7]
+            prize1 = replaceStr(i.xpath('td/text()')[11])
+            prize2 = replaceStr(i.xpath('td/text()')[13])
+            drawdate = replaceStr(i.xpath('td/text()')[15])
+            #red.insert(0,'20'+datetime)
+            red.insert(0,datetime)
+            red.append(blue)
+            red.append(prize1)
+            red.append(prize2)
+            red.append(drawdate)
+            val = '{}\n'.format(','.join(red))
+            # 值异常
+            if len(val) < 26:
+                continue
+            # 已经爬取过的数据不更新
+            if datetime in ssqs and ssqs[datetime] == val:
+                continue
+            ssqs[datetime] = val
+            updateSum = updateSum + 1
+
+        print('url updateSum all = {} \n'.format(str(updateSum)))
+    except IOError:
+        print('Failed requests error, url={} \n'.format(url))
 
     # 没有更新时退出
     if updateSum > 0:
