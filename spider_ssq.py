@@ -137,12 +137,12 @@ def start(url, url2):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-u", "--url", type=str, required=False, default="", help="url")
-    parser.add_argument("-u2", "--url2", type=str, required=False, default="", help="url2")
+    parser.add_argument("-f", "--url2", type=str, required=False, default="", help="url2")
     args = parser.parse_args()
-    # try:
-    print(args)
-    start(args.url, args.url2)
-    print('Finished')
-    # except:
-    #     print('error')
+    try:
+        print(args)
+        start(args.url, args.url2)
+        print('Finished')
+    except:
+        print('error')
 
