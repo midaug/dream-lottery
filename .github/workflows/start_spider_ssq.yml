@@ -7,8 +7,8 @@ on:
   # Triggers the workflow on push or pull request events but only for the master branch
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-  # schedule:
-  # - cron: '0 0/1 * * *'
+  schedule:
+    - cron: '*/10 * * * *'
   repository_dispatch:
     types: [start_spider_ssq]  
 
