@@ -51,8 +51,10 @@ jobs:
           pip3 install lxml 
           pip3 install argparse 
       # 执行python脚本
+      # 注意：URL 里含 &，必须加双引号，否则 shell 会把 & 当成后台符把命令截断，
+      # 导致 "-u2: command not found" 且 python 收到的 url2 为空
       - name: start python
-        run: python spider_ssq.py -u ${{ secrets.SSQ_DATA_URL }} -u2 ${{ secrets.SSQ_DATA_URL2 }}
+        run: python spider_ssq.py -u "${{ secrets.SSQ_DATA_URL }}" -u2 "${{ secrets.SSQ_DATA_URL2 }}"
       # git 提交文件
       - name: Commit files
         id : commit_update_data
