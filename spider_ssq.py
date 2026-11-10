@@ -293,23 +293,27 @@ def collectFromTextBody(text, ssqs, label, onlyNew=False):
 def collectFromAny(url, ssqs, label, onlyNew=False):
     """抓一个源并自动识别格式：JSON / HTML 表格 / 纯文本。
     只认内容不认地址，换源时不用改代码。
+    返回 (解析行数, 更新条数, 状态)，状态取 ok / empty / failed。
     """
     try:
         text = fetchText(url)
     except Exception as e:
-        print('Failed requests error, {}{} \n{}\n'.format(label, maskUrl(url), safeErr(e)))
-        return 0, 0
+        print('Failed requests error on {} {}\n{}\n'.format(label, maskUrl(url), safeErr(e)))
+        return 0, 0, 'failed'
 
     head = text.lstrip()[:1]
     try:
         if head in ('{', '['):
-            return collectFromJsonBody(json.loads(text), ssqs, label, onlyNew)
-        if '<tr' in text or '<table' in text:
-            return collectFromHtmlBody(text, ssqs, label)
-        return collectFromTextBody(text, ssqs, label, onlyNew)
+            rows, updates = collectFromJsonBody(json.loads(text), ssqs, label, onlyNew)
+        elif '<tr' in text or '<table' in text:
+            rows, updates = collectFromHtmlBody(text, ssqs, label)
+        else:
+            rows, updates = collectFromTextBody(text, ssqs, label, onlyNew)
     except Exception as e:
-        print('Parse failed, {}{} \n{}\n'.format(label, maskUrl(url), safeErr(e)))
-        return 0, 0
+        print('Parse failed on {} {}\n{}\n'.format(label, maskUrl(url), safeErr(e)))
+        return 0, 0, 'failed'
+
+    return rows, updates, ('ok' if rows else 'empty')
 
 def start(url, url2, url3=''):
     _DEADLINE[0] = time.time() + TOTAL_BUDGET_SECONDS
@@ -331,45 +335,52 @@ def start(url, url2, url3=''):
         historyExists = False
         print('Failed to read history, {} isNotExists \n'.format(ssqPath))
 
-    rowsFromUrl2 = 0
     rowsFromUrl = 0
+    rowsFromUrl2 = 0
     rowsFromFallback = 0
     updatesTotal = 0
+    summary = []
 
-    # 源1：主源（全量历史，重量级）
-    if url and (budgetLeft() is None or budgetLeft() > 10):
-        try:
-            rowsFromUrl, updates = collectFromAny(url, ssqs, 'url')
-            updatesTotal = updatesTotal + updates
-        except Exception as e:
-            print('Source url crashed, keep going: {} \n'.format(safeErr(e)))
+    def runSource(label, srcUrl, onlyNew=False):
+        """抓一个源并记录结果。单个源失败不影响其它源，也不中断整体流程。"""
+        nonlocal updatesTotal
+        rows, updates, status = collectFromAny(srcUrl, ssqs, label, onlyNew)
+        updatesTotal = updatesTotal + updates
+        summary.append('{:<5} {:<7} rows={:<6} updates={}'.format(label, status, rows, updates))
+        return rows
 
-    # 源2：附加源（一般是轻量接口，每次运行都取，只补新期号）
-    if url2 and (budgetLeft() is None or budgetLeft() > 10):
-        try:
-            rowsFromUrl2, updates = collectFromAny(url2, ssqs, 'url2', onlyNew=True)
-            updatesTotal = updatesTotal + updates
-        except Exception as e:
-            print('Source url2 crashed, keep going: {} \n'.format(safeErr(e)))
+    # 源1：主源，全量历史（重量级，一般也最全）
+    if url and budgetLeft() > 10:
+        rowsFromUrl = runSource('url', url)
+    else:
+        summary.append('{:<5} {:<7} {}'.format('url', 'skipped', 'not configured' if not url else 'time budget'))
 
-    # 源3：兜底源，只在主源拿不到数据时启用
+    # 源2：附加源，每次运行都取，只补缺失期号（不覆盖已有行，避免格式差异来回改文件）
+    if url2 and budgetLeft() > 10:
+        rowsFromUrl2 = runSource('url2', url2, onlyNew=True)
+    else:
+        summary.append('{:<5} {:<7} {}'.format('url2', 'skipped', 'not configured' if not url2 else 'time budget'))
+
+    # 源3：最后手段。只有前面所有源全部颗粒无收时才启用，避免无谓请求
     url2Host = urlparse(url2).netloc if url2 else ''
     url3Host = urlparse(url3).netloc if url3 else ''
-    if ((not url) or (url and rowsFromUrl == 0)) and (budgetLeft() is None or budgetLeft() > 10):
-        if not url3:
-            print('No fallback url configured (-u3), skip \n')
-        elif url2Host and url3Host and url2Host == url3Host:
-            print('Fallback source is the same as url2, skip \n')
-        else:
-            print('Activating fallback source \n')
-            try:
-                rowsFromFallback, updates = collectFromAny(url3, ssqs, 'fallback', onlyNew=True)
-                updatesTotal = updatesTotal + updates
-            except Exception as e:
-                print('Source fallback crashed, keep going: {} \n'.format(safeErr(e)))
+    if rowsFromUrl + rowsFromUrl2 > 0:
+        summary.append('{:<5} {:<7} {}'.format('url3', 'skipped', 'not needed'))
+    elif not url3:
+        summary.append('{:<5} {:<7} {}'.format('url3', 'skipped', 'not configured'))
+    elif url2Host and url3Host and url2Host == url3Host:
+        summary.append('{:<5} {:<7} {}'.format('url3', 'skipped', 'same host as url2'))
+    elif budgetLeft() <= 10:
+        summary.append('{:<5} {:<7} {}'.format('url3', 'skipped', 'time budget'))
+    else:
+        rowsFromFallback = runSource('url3', url3, onlyNew=True)
 
-    totalRows = rowsFromUrl2 + rowsFromUrl + rowsFromFallback
-    print('rows parsed: url={}, url2={}, fallback={} \n'.format(rowsFromUrl, rowsFromUrl2, rowsFromFallback))
+    totalRows = rowsFromUrl + rowsFromUrl2 + rowsFromFallback
+    print('\nrows parsed: url={}, url2={}, url3={}'.format(rowsFromUrl, rowsFromUrl2, rowsFromFallback))
+    print('source summary:')
+    for item in summary:
+        print('  - {}'.format(item))
+    print('')
 
     # 所有源都没拿到数据，说明是抓取故障而不是「暂无新开奖」
     if totalRows == 0:
@@ -455,12 +466,12 @@ def findGaps(ssqs):
 # 说明：这只是编码不是加密，目的是不让地址以明文出现在仓库里；需要查看原文时执行
 #   python spider_ssq.py --show-sources
 _SOURCES_B64 = {
-    # 主源：全量历史（HTML 表格）
+    # 主源：全量历史（HTML 表格），全球可达
     'u': 'aHR0cHM6Ly9kYXRhY2hhcnQuNTAwLmNvbS9zc3EvaGlzdG9yeS9uZXdpbmMvaGlzdG9yeS5waHA/bGltaXQ9OTk5OTk5',
-    # 附加源：轻量 JSON 接口，每次运行都取，只补新期号
-    'u2': 'aHR0cHM6Ly9qYy56aGN3LmNvbS9wb3J0L2NsaWVudF9qc29uLnBocD90cmFuc2FjdGlvblR5cGU9MTAwMDEwMDEmbG90dGVyeUlkPTEmaXNzdWVDb3VudD0zMCZ0eXBlPTAmcGFnZU51bT0xJnBhZ2VTaXplPTMwJnR0PTAuNSZfPTE=',
-    # 兜底源：纯文本全量，仅主源失败时启用
-    'u3': 'aHR0cHM6Ly93d3cuMTc1MDAuY24vZ2V0RGF0YS9zc3EuVFhU',
+    # 附加源：纯文本全量，全球可达；每次运行都取，只补缺失期号
+    'u2': 'aHR0cHM6Ly93d3cuMTc1MDAuY24vZ2V0RGF0YS9zc3EuVFhU',
+    # 最后兜底：JSON 接口，仅中国大陆 IP 可达；前两个源颗粒无收时才会尝试
+    'u3': 'aHR0cHM6Ly9qYy56aGN3LmNvbS9wb3J0L2NsaWVudF9qc29uLnBocD90cmFuc2FjdGlvblR5cGU9MTAwMDEwMDEmbG90dGVyeUlkPTEmaXNzdWVDb3VudD0zMCZ0eXBlPTAmcGFnZU51bT0xJnBhZ2VTaXplPTMwJnR0PTAuNSZfPTE=',
 }
 
 def decodeSource(key):
