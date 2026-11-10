@@ -7,6 +7,23 @@
 21124 | 01 | 03 | 18 | 22 | 29 | 32 | 02 | 7956250 | 252670 | 2021-10-31
 
 
+### 数据采集脚本 spider_ssq.py
+
+开奖数据由 `.github/workflows/start_spider_ssq.yml` 定时（每 10 分钟）执行脚本更新。
+
+数据源地址以 base64 常量内置在脚本里，运行时自动解码，因此 workflow 不需要传参、也不依赖 secrets。
+需要查看内置的源地址时（零依赖，不装 requests 也能跑）：
+
+```bash
+python spider_ssq.py --show-sources
+```
+
+临时换源可直接传参，留空即回落到内置源：
+
+```bash
+python spider_ssq.py -u "https://.../history.php" -u2 "" -u3 ""
+```
+
 ### dream-lottery-web
 dream-lottery-web 是一个spring boot web服务，拥有查询最新开奖信息和拍照识别中奖功能
 页面地址：http://127.0.0.1:8080/ssq/index
