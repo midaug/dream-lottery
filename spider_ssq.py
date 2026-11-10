@@ -320,6 +320,7 @@ def start(url, url2, url3=''):
     _DEADLINE[0] = time.time() + TOTAL_BUDGET_SECONDS
     ssqPath = './spider_data/ssq.txt'
     ssqJSPath = './spider_data/ssq.js'
+    ssqJSONPath = './spider_data/ssq.json'
     ssqs = {}
     historyExists = True
 
@@ -405,7 +406,8 @@ def start(url, url2, url3=''):
         print('WARNING missing issues detected: {} \n'.format(gaps))
 
     # 内容没变就不写盘，避免定时任务产生空提交和无意义的文件改动
-    if not ssqChanged(ssqPath, ssqs):
+    # 但派生文件（js/json）缺失时必须补写，否则新增格式要等下次开奖才出现
+    if not ssqChanged(ssqPath, ssqs) and os.path.exists(ssqJSPath) and os.path.exists(ssqJSONPath):
         print('No data change, skip writing \n')
         return True
 
@@ -415,16 +417,50 @@ def start(url, url2, url3=''):
     # 先在内存里拼好，避免写入中途失败把已有数据截断成空文件
     txtBody = ''.join(ssqs[key] for key in ssqkeys)
     jsBody = 'window.ssqData = `{}`'.format(txtBody)
+    jsonBody = buildJsonBody(ssqs)
     try:
         mkdir('./spider_data/')
         writeAtomic(ssqPath, txtBody)
         writeAtomic(ssqJSPath, jsBody)
+        writeAtomic(ssqJSONPath, jsonBody)
         print('updateSum is {} \n'.format(updatesTotal))
     except IOError as e:
         print('Write failed, {}: {} \n'.format(type(e).__name__, e))
         return False
 
     return True
+
+def buildJsonBody(ssqs):
+    """把内存里的数据导出成 JSON：按最新在前排列，字段与 ssq.txt 一致。"""
+    records = []
+    for key in sorted(ssqs.keys(), reverse=True):
+        if len(key) != 5 or not key.isdigit():
+            continue
+        parts = str(ssqs[key]).rstrip('\n').split(',')
+        if len(parts) < 11:
+            continue
+        records.append({
+            'issue': parts[0],
+            'red': parts[1:7],
+            'blue': parts[7],
+            'prize1': toInt(parts[8]),
+            'prize2': toInt(parts[9]),
+            'date': parts[10],
+        })
+
+    payload = {
+        'count': len(records),
+        'latest': records[0]['issue'] if records else '',
+        'updatedAt': time.strftime('%Y-%m-%d %H:%M:%S'),
+        'data': records,
+    }
+    # 不缩进：data 量级 3000+ 条，缩进后文件会膨胀一倍多
+    return json.dumps(payload, ensure_ascii=False, separators=(',', ':')) + '\n'
+
+def toInt(value):
+    """金额转整数；为空或非数字时返回 None，避免出现 0 与 null 混淆。"""
+    digits = numberStr(value)
+    return int(digits) if digits.isdigit() else None
 
 def ssqChanged(ssqPath, ssqs):
     """比较抓到的数据与磁盘文件是否一致（忽略 999999999 统计行）。"""
@@ -444,7 +480,7 @@ def ssqChanged(ssqPath, ssqs):
 def writeAtomic(path, content):
     # 同目录临时文件 + os.replace，保证要么是旧内容要么是新内容
     tmpPath = '{}.tmp'.format(path)
-    f = open(tmpPath, 'w')
+    f = open(tmpPath, 'w', encoding='utf-8')
     try:
         f.write(content)
         f.flush()
