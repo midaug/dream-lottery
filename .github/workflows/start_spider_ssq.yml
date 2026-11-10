@@ -62,30 +62,11 @@ jobs:
       # 执行python脚本
       # 注意：URL 里含 &，必须加双引号，否则 shell 会把 & 当成后台符把命令截断，
       # 导致 "-u2: command not found" 且 python 收到的 url2 为空
-      # 三个地址都只从 secrets 读取，仓库代码里不出现任何抓取地址
-      # 先自检：secret 名字写错或没配时会静默变成空串，这里显式提示（只输出变量名，不输出值）
-      - name: check secrets
-        env:
-          SSQ_DATA_URL: ${{ secrets.SSQ_DATA_URL }}
-          SSQ_DATA_URL2: ${{ secrets.SSQ_DATA_URL2 }}
-          SSQ_DATA_URL3: ${{ secrets.SSQ_DATA_URL3 }}
-        run: |
-          missing=""
-          if [ -z "$SSQ_DATA_URL" ]; then missing="$missing SSQ_DATA_URL"; fi
-          if [ -z "$SSQ_DATA_URL2" ]; then missing="$missing SSQ_DATA_URL2"; fi
-          if [ -z "$SSQ_DATA_URL3" ]; then missing="$missing SSQ_DATA_URL3"; fi
-          if [ -n "$missing" ]; then
-            echo "::warning::empty secrets:$missing"
-          else
-            echo "3 data source secrets are all set"
-          fi
+      # 数据源已内置在 spider_ssq.py 里（base64 存放，运行时解码），直接运行即可，不再依赖 secrets
+      # 如需临时换源，可在这里追加参数：python spider_ssq.py -u "地址" -u2 "地址" -u3 "地址"
       - name: start python
         timeout-minutes: 8
-        env:
-          SSQ_DATA_URL: ${{ secrets.SSQ_DATA_URL }}
-          SSQ_DATA_URL2: ${{ secrets.SSQ_DATA_URL2 }}
-          SSQ_DATA_URL3: ${{ secrets.SSQ_DATA_URL3 }}
-        run: python spider_ssq.py -u "$SSQ_DATA_URL" -u2 "$SSQ_DATA_URL2" -u3 "$SSQ_DATA_URL3"
+        run: python spider_ssq.py
       # git 提交文件
       - name: Commit files
         id: commit_update_data

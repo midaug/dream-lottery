@@ -1,6 +1,4 @@
-import requests, warnings
-from requests.packages import urllib3
-from lxml import etree
+import base64
 import os
 import re
 import sys
@@ -9,9 +7,19 @@ import time
 import random
 import argparse
 import traceback
+import warnings
 from urllib.parse import urlparse
 
-urllib3.disable_warnings()
+# 只用 --show-sources 查看内置地址时不需要第三方库，避免没装依赖就跑不了
+try:
+    import requests
+    from requests.packages import urllib3
+    from lxml import etree
+    urllib3.disable_warnings()
+except ImportError:
+    if '--show-sources' not in sys.argv:
+        raise
+
 warnings.filterwarnings("ignore")
 
 # 开奖站点对默认的 python-requests UA 会返回拦截页，必须伪装 UA
@@ -443,19 +451,62 @@ def findGaps(ssqs):
                 gaps.append('{}{:03d}'.format(year, n))
     return gaps
 
+# 数据源以 base64 存放：避免地址被明文检索 / 扫描到，运行时解码后使用。
+# 说明：这只是编码不是加密，目的是不让地址以明文出现在仓库里；需要查看原文时执行
+#   python spider_ssq.py --show-sources
+_SOURCES_B64 = {
+    # 主源：全量历史（HTML 表格）
+    'u': 'aHR0cHM6Ly9kYXRhY2hhcnQuNTAwLmNvbS9zc3EvaGlzdG9yeS9uZXdpbmMvaGlzdG9yeS5waHA/bGltaXQ9OTk5OTk5',
+    # 附加源：轻量 JSON 接口，每次运行都取，只补新期号
+    'u2': 'aHR0cHM6Ly9qYy56aGN3LmNvbS9wb3J0L2NsaWVudF9qc29uLnBocD90cmFuc2FjdGlvblR5cGU9MTAwMDEwMDEmbG90dGVyeUlkPTEmaXNzdWVDb3VudD0zMCZ0eXBlPTAmcGFnZU51bT0xJnBhZ2VTaXplPTMwJnR0PTAuNSZfPTE=',
+    # 兜底源：纯文本全量，仅主源失败时启用
+    'u3': 'aHR0cHM6Ly93d3cuMTc1MDAuY24vZ2V0RGF0YS9zc3EuVFhU',
+}
+
+def decodeSource(key):
+    """解码内置数据源；损坏时返回空串，由调用方按「未配置」处理。"""
+    raw = (_SOURCES_B64.get(key) or '').strip()
+    if not raw:
+        return ''
+    try:
+        return base64.b64decode(raw).decode('utf-8').strip()
+    except Exception:
+        print('WARNING built-in source {} is corrupted, ignored'.format(key))
+        return ''
+
+def resolveSources(url, url2, url3):
+    """参数优先，参数为空时回落到内置源。返回 [(label, url, origin), ...]"""
+    resolved = []
+    for key, label, value in (('u', 'url', url), ('u2', 'url2', url2), ('u3', 'url3', url3)):
+        if value:
+            resolved.append((label, value, 'arg'))
+            continue
+        builtin = decodeSource(key)
+        resolved.append((label, builtin, 'builtin' if builtin else 'none'))
+    return resolved
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-u", "--url", type=str, required=False, default="", help="主源")
-    parser.add_argument("-u2", "--url2", type=str, required=False, default="", help="附加源")
-    parser.add_argument("-u3", "--url3", type=str, required=False, default="", help="兜底源")
+    parser.add_argument("-u", "--url", type=str, required=False, default="", help="临时覆盖主源（留空用内置）")
+    parser.add_argument("-u2", "--url2", type=str, required=False, default="", help="临时覆盖附加源（留空用内置）")
+    parser.add_argument("-u3", "--url3", type=str, required=False, default="", help="临时覆盖兜底源（留空用内置）")
+    parser.add_argument("--show-sources", action="store_true", help="打印内置数据源（解码后）用于自查")
     args = parser.parse_args()
+
+    # 自查用：把内置的 base64 源还原成地址打印出来，方便长期以后回看/本地测试
+    if args.show_sources:
+        for key, label in (('u', 'url'), ('u2', 'url2'), ('u3', 'url3')):
+            print('{:<5} {}'.format(label, decodeSource(key) or '(not set)'))
+        sys.exit(0)
+
     try:
-        # 只打印每个源是否配置、多长，不打印地址本身（公开仓库日志人人可见）
-        url, url2, url3 = cleanArg(args.url), cleanArg(args.url2), cleanArg(args.url3)
-        for label, value in (('url', url), ('url2', url2), ('url3', url3)):
-            print('source {:<5} configured: {:<3} {}'.format(label, 'yes' if value else 'no', maskUrl(value)))
-        ok = start(url, url2, url3)
+        sources = resolveSources(cleanArg(args.url), cleanArg(args.url2), cleanArg(args.url3))
+        # 只打印每个源是否配置、来自哪里、多长，不打印地址本身（公开仓库日志人人可见）
+        for label, value, origin in sources:
+            print('source {:<5} {:<8} configured: {:<3} {}'
+                  .format(label, origin, 'yes' if value else 'no', maskUrl(value)))
+        ok = start(*[value for _, value, _ in sources])
         print('Finished')
         if not ok:
             sys.exit(1)
