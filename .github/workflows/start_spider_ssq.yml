@@ -2,7 +2,7 @@
 
 name: start_spider_ssq
 
-# Controls when the action will run. 
+# Controls when the action will run.
 on:
   # Triggers the workflow on push or pull request events but only for the master branch
   # Allows you to run this workflow manually from the Actions tab
@@ -10,7 +10,17 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   repository_dispatch:
-    types: [start_spider_ssq]  
+    types: [start_spider_ssq]
+
+# 定时任务 + 外部 repository_dispatch 会同时触发，叠加执行容易撞上数据源的限流；
+# 同一时间只允许一个运行，后到的排队而不是并发抢同一个分支
+concurrency:
+  group: spider-ssq
+  cancel-in-progress: false
+
+# 显式声明写权限，避免仓库默认权限收紧后推送失败
+permissions:
+  contents: write
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -18,28 +28,27 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Steps represent a sequence of tasks that will be executed as part of the job
     outputs:
-      SPIDER_DATA_IS_UPDATE: ${{ steps.commit_update_data.outputs.is_update}}
+      SPIDER_DATA_IS_UPDATE: ${{ steps.commit_update_data.outputs.is_update }}
     steps:
       # 输出IP
       - name: IP
-        run: sudo curl ifconfig.me
-      # 设置服务器时区为东八区 
+        run: curl -s --max-time 10 ifconfig.me || true
+      # 设置服务器时区为东八区
       - name: Set time zone
         run: sudo timedatectl set-timezone 'Asia/Shanghai'
-      
+
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout
-        uses: actions/checkout@v2
-      
+        uses: actions/checkout@v4
+
       # 使用python环境
       - name: Set up Python 3.x
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
-          # Semantic version range syntax or exact version of a Python version
-          python-version: '3.x'
-          # Optional - x64 or x86 architecture, defaults to x64
+          python-version: '3.12'
           architecture: 'x64'
       # 打印pyton版本
       - name: Display Python version
@@ -47,33 +56,51 @@ jobs:
 
       - name: install python libs
         run: |
-          pip3 install requests
-          pip3 install lxml 
-          pip3 install argparse 
+          python -m pip install --upgrade pip
+          python -m pip install requests lxml
       # 执行python脚本
       # 注意：URL 里含 &，必须加双引号，否则 shell 会把 & 当成后台符把命令截断，
       # 导致 "-u2: command not found" 且 python 收到的 url2 为空
+      # 三个地址都只从 secrets 读取，仓库代码里不出现任何抓取地址
       - name: start python
-        run: python spider_ssq.py -u "${{ secrets.SSQ_DATA_URL }}" -u2 "${{ secrets.SSQ_DATA_URL2 }}"
+        env:
+          SSQ_DATA_URL: ${{ secrets.SSQ_DATA_URL }}
+          SSQ_DATA_URL2: ${{ secrets.SSQ_DATA_URL2 }}
+          SSQ_DATA_URL3: ${{ secrets.SSQ_DATA_URL3 }}
+        run: python spider_ssq.py -u "$SSQ_DATA_URL" -u2 "$SSQ_DATA_URL2" -u3 "$SSQ_DATA_URL3"
       # git 提交文件
       - name: Commit files
-        id : commit_update_data
+        id: commit_update_data
         run: |
           git config --local user.email "days0814@gmail.com"
           git config --local user.name "midaug"
-          git add .
-          git commit -m "`date '+%Y-%m-%d %H:%M:%S'` , spider_ssq.py start" && echo "is_update=yes" >> $GITHUB_OUTPUT || echo "is_update=no" >> $GITHUB_OUTPUT
-      # 推送到github仓库
+          git add spider_data
+          if git diff --cached --quiet; then
+            echo "no data change"
+            echo "is_update=no" >> $GITHUB_OUTPUT
+          else
+            git commit -m "$(date '+%Y-%m-%d %H:%M:%S') , spider_ssq.py start"
+            echo "is_update=yes" >> $GITHUB_OUTPUT
+          fi
+      # 推送到github仓库（带重试，避免偶发网络错误直接把任务判失败）
       - name: Push changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref }}
+        if: steps.commit_update_data.outputs.is_update == 'yes'
+        run: |
+          for i in 1 2 3 4 5; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            echo "push failed (attempt $i), retrying..."
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            sleep 5
+          done
+          echo "push failed after 5 attempts"
+          exit 1
   sync2gitee:
-    needs: build   
+    needs: build
     if: ${{ needs.build.outputs.SPIDER_DATA_IS_UPDATE == 'yes' }}
     uses: midaug/dream-lottery/.github/workflows/sync2gitee.yml@main
-    secrets: 
+    secrets:
       GITEE_PRIVATE_KEY: ${{ secrets.GITEE_PRIVATE_KEY }}
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
       GITEE_USER: ${{ secrets.GITEE_USER }}
