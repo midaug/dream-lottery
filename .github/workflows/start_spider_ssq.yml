@@ -16,7 +16,8 @@ on:
 # 同一时间只允许一个运行，后到的排队而不是并发抢同一个分支
 concurrency:
   group: spider-ssq
-  cancel-in-progress: false
+  # 卡死的运行会被下一次触发顶掉，避免并发组被永久堵住
+  cancel-in-progress: true
 
 # 显式声明写权限，避免仓库默认权限收紧后推送失败
 permissions:
@@ -58,25 +59,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install requests lxml
-      # 临时探针：从 runner 侧确认三个数据源的真实可达性（只打印状态码，不打印地址）
-      - name: probe sources
-        env:
-          U1: ${{ secrets.SSQ_DATA_URL }}
-          U2: ${{ secrets.SSQ_DATA_URL2 }}
-          U3: ${{ secrets.SSQ_DATA_URL3 }}
-        run: |
-          for pair in "url:$U1" "url2:$U2" "url3:$U3"; do
-            name="${pair%%:*}"; u="${pair#*:}"
-            if [ -z "$u" ]; then echo "::warning::probe $name => EMPTY(secret 未设置)"; continue; fi
-            out=$(curl -s -o /dev/null -w "%{http_code}/%{size_download}B/%{time_total}s" --max-time 25 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" "$u" 2>/dev/null || echo "000/0B/0s")
-            echo "::warning::probe $name => $out"
-          done
-
       # 执行python脚本
       # 注意：URL 里含 &，必须加双引号，否则 shell 会把 & 当成后台符把命令截断，
       # 导致 "-u2: command not found" 且 python 收到的 url2 为空
       # 三个地址都只从 secrets 读取，仓库代码里不出现任何抓取地址
       - name: start python
+        timeout-minutes: 8
         env:
           SSQ_DATA_URL: ${{ secrets.SSQ_DATA_URL }}
           SSQ_DATA_URL2: ${{ secrets.SSQ_DATA_URL2 }}

@@ -19,8 +19,17 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36',
 ]
-TIMEOUT = 30
-RETRIES = 4
+TIMEOUT = (10, 25)          # (连接超时, 读取超时)
+RETRIES = 3
+PER_ATTEMPT_SECONDS = 60    # 单次请求的读取时长上限，防慢速滴流把任务拖死
+TOTAL_BUDGET_SECONDS = 360  # 整个抓取过程的硬预算
+
+_DEADLINE = [None]
+
+def budgetLeft():
+    if not _DEADLINE[0]:
+        return None
+    return _DEADLINE[0] - time.time()
 
 def refererOf(url):
     # 用来源自身的站点根作为 Referer，避免在代码里写死具体域名
@@ -58,12 +67,17 @@ def mkdir(path):
         return False
 
 def fetch(url, referer=None, retries=RETRIES):
-    """带重试的 GET。非 2xx / 空响应都会重试，全部失败才抛异常。"""
+    """带重试和硬性时间预算的 GET。
+    用流式读取，边读边计时，避免对方慢速滴流时读超时永远不触发、任务被无限拖住。
+    """
     if not url or not url.startswith(('http://', 'https://')):
         raise ValueError('invalid url: {!r}'.format(url))
 
     lastError = None
     for attempt in range(1, retries + 1):
+        left = budgetLeft()
+        if left is not None and left <= 5:
+            raise RuntimeError('global time budget exhausted before attempt')
         headers = {
             'User-Agent': random.choice(USER_AGENTS),
             'Accept': 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
@@ -72,15 +86,26 @@ def fetch(url, referer=None, retries=RETRIES):
         if referer:
             headers['Referer'] = referer
         try:
-            response = requests.get(url=url, headers=headers, timeout=TIMEOUT, verify=False)
-            # 4xx 里只有 403/429 值得重试（多是反爬/限流），其余直接失败省时间
-            if 400 <= response.status_code < 500 and response.status_code not in (403, 429):
-                raise _FatalHttpError('HTTP {} for {}'.format(response.status_code, url))
-            # 状态码非 2xx 时抛异常，否则错误页会被静默解析成 0 条
-            response.raise_for_status()
-            if not response.text.strip():
-                raise ValueError('empty body')
-            return response
+            with requests.get(url=url, headers=headers, timeout=TIMEOUT, verify=False, stream=True) as response:
+                # 4xx 里只有 403/429 值得重试（多是反爬/限流），其余直接失败省时间
+                if 400 <= response.status_code < 500 and response.status_code not in (403, 429):
+                    raise _FatalHttpError('HTTP {} for {}'.format(response.status_code, url))
+                # 状态码非 2xx 时抛异常，否则错误页会被静默解析成 0 条
+                response.raise_for_status()
+
+                body = bytearray()
+                startedAt = time.time()
+                for chunk in response.iter_content(chunk_size=65536):
+                    body += chunk
+                    if time.time() - startedAt > PER_ATTEMPT_SECONDS:
+                        raise TimeoutError('response too slow, aborted after {}s and {} bytes'
+                                           .format(PER_ATTEMPT_SECONDS, len(body)))
+                if not body:
+                    raise ValueError('empty body')
+                # 回填已读内容，后续仍按普通 Response 使用
+                response._content = bytes(body)
+                response._content_consumed = True
+                return response
         except _FatalHttpError:
             raise
         except Exception as e:
@@ -91,8 +116,33 @@ def fetch(url, referer=None, retries=RETRIES):
                 time.sleep(min(2 ** attempt, 10) + random.uniform(0.5, 1.5))
     raise RuntimeError('all {} attempts failed, last error: {}'.format(retries, lastError))
 
+def parseCwlRecord(i):
+    """福彩官网接口的字段映射。"""
+    datetime = str(i["code"])[2:]
+    red = str(i['red']).split(',')
+    blue = str(i['blue']).strip()
+    prize1 = i['prizegrades'][0]['typemoney']
+    prize2 = i['prizegrades'][1]['typemoney']
+    drawdate = str(i["date"])[0:len(str(i["date"])) - 3]
+    return datetime, red, blue, prize1, prize2, drawdate
+
+def parseZhcwRecord(i):
+    """中彩网接口的字段映射（期号是 7 位，红球用空格分隔）。"""
+    datetime = str(i['issue'])[2:]
+    red = str(i['frontWinningNum']).split()
+    blue = str(i['backWinningNum']).strip()
+    grades = {}
+    for g in (i.get('winnerDetails') or []):
+        base = g.get('baseBetWinner') or {}
+        grades[str(g.get('awardEtc'))] = base.get('awardMoney', '')
+    prize1 = grades.get('1', '')
+    prize2 = grades.get('2', '')
+    drawdate = str(i['openTime']).strip()
+    return datetime, red, blue, prize1, prize2, drawdate
+
 def collectFromJson(url, ssqs, label, referer=None, onlyNew=False):
-    """解析体彩官网风格的 JSON 接口，返回 (解析行数, 更新条数)。
+    """解析 JSON 接口，自动识别两种常见返回结构，返回 (解析行数, 更新条数)。
+    支持：福彩官网 result[] 结构、中彩网 data[] 结构。
     onlyNew=True 时只补写缺失期号，不覆盖已有行，避免不同源金额格式差异来回改动文件。
     """
     updates = 0
@@ -103,7 +153,12 @@ def collectFromJson(url, ssqs, label, referer=None, onlyNew=False):
         print('Failed requests error, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
         return 0, 0
 
-    records = payload.get('result') if isinstance(payload, dict) else None
+    records = None
+    parser = None
+    if isinstance(payload, dict) and isinstance(payload.get('result'), list):
+        records, parser = payload['result'], parseCwlRecord
+    elif isinstance(payload, dict) and isinstance(payload.get('data'), list):
+        records, parser = payload['data'], parseZhcwRecord
     if not records:
         print('WARNING {} returned no records (keys: {}), source may be broken \n'
               .format(label, list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__))
@@ -111,15 +166,10 @@ def collectFromJson(url, ssqs, label, referer=None, onlyNew=False):
 
     for i in records:
         try:
-            datetime = i["code"][2:len(i["code"])]
+            datetime, red, blue, prize1, prize2, drawdate = parser(i)
             # 期数长度不符合要求时
             if len(datetime) < 5:
                 continue
-            red = i['red'].split(',')
-            blue = i['blue']
-            prize1 = i['prizegrades'][0]['typemoney']
-            prize2 = i['prizegrades'][1]['typemoney']
-            drawdate = i["date"][0:len(i["date"]) - 3]
             red.insert(0, datetime)
             red.append(blue)
             # 金额一旦带千分位逗号会撑破 CSV 列数，统一清洗
@@ -127,7 +177,7 @@ def collectFromJson(url, ssqs, label, referer=None, onlyNew=False):
             red.append(numberStr(prize2))
             red.append(drawdate)
             val = '{}\n'.format(','.join(red))
-        except (KeyError, IndexError, TypeError, AttributeError):
+        except (KeyError, IndexError, TypeError, AttributeError, ValueError):
             # 单行异常不影响整个源
             print('Skipped a malformed record from {} \n'.format(label))
             continue
@@ -198,6 +248,7 @@ def collectFromHtml(url, ssqs, label):
     return rows, updates
 
 def start(url, url2, url3=''):
+    _DEADLINE[0] = time.time() + TOTAL_BUDGET_SECONDS
     ssqPath = './spider_data/ssq.txt'
     ssqJSPath = './spider_data/ssq.js'
     ssqs = {}
@@ -221,29 +272,38 @@ def start(url, url2, url3=''):
     rowsFromFallback = 0
     updatesTotal = 0
 
-    # 源1：配置的 JSON 接口（可选）
-    if url2:
-        rowsFromUrl2, updates = collectFromJson(url2, ssqs, 'url2', referer=refererOf(url2))
-        updatesTotal = updatesTotal + updates
+    # 源1：配置的 JSON 接口（可选，通常是最轻量的一个源）
+    if url2 and (budgetLeft() is None or budgetLeft() > 10):
+        try:
+            rowsFromUrl2, updates = collectFromJson(url2, ssqs, 'url2', referer=refererOf(url2))
+            updatesTotal = updatesTotal + updates
+        except Exception as e:
+            print('Source url2 crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
 
     # 源2：历史开奖页（HTML）
-    if url:
-        rowsFromUrl, updates = collectFromHtml(url, ssqs, 'url')
-        updatesTotal = updatesTotal + updates
+    if url and (budgetLeft() is None or budgetLeft() > 10):
+        try:
+            rowsFromUrl, updates = collectFromHtml(url, ssqs, 'url')
+            updatesTotal = updatesTotal + updates
+        except Exception as e:
+            print('Source url crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
 
     # 源3：备用接口（由 secret 提供，支持 url3 参数）。只在主源不可用时启用，
     # 既能兜住主源的限流/改版，又不会每次运行都多发一个大请求
     url2Host = urlparse(url2).netloc if url2 else ''
     url3Host = urlparse(url3).netloc if url3 else ''
-    if (not url) or (url and rowsFromUrl == 0):
+    if ((not url) or (url and rowsFromUrl == 0)) and (budgetLeft() is None or budgetLeft() > 10):
         if not url3:
             print('No fallback url configured (-u3), skip \n')
         elif url2Host and url3Host and url2Host == url3Host:
             print('Fallback source is the same as url2, skip \n')
         else:
             print('Activating fallback source \n')
-            rowsFromFallback, updates = collectFromJson(url3, ssqs, 'fallback', referer=refererOf(url3), onlyNew=True)
-            updatesTotal = updatesTotal + updates
+            try:
+                rowsFromFallback, updates = collectFromJson(url3, ssqs, 'fallback', referer=refererOf(url3), onlyNew=True)
+                updatesTotal = updatesTotal + updates
+            except Exception as e:
+                print('Source fallback crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
 
     totalRows = rowsFromUrl2 + rowsFromUrl + rowsFromFallback
     print('rows parsed: url2={}, url={}, fallback={} \n'.format(rowsFromUrl2, rowsFromUrl, rowsFromFallback))
