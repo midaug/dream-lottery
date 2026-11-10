@@ -39,6 +39,31 @@ def refererOf(url):
         return None
     return '{}://{}/'.format(p.scheme, p.netloc)
 
+def cleanArg(value=''):
+    """清洗外部传入的地址：去空白、去掉误粘贴的成对引号。
+    secret 里手滑带上引号时，requests 会直接报 Invalid URL，很难排查。"""
+    v = (value or '').strip()
+    while len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        v = v[1:-1].strip()
+    return v
+
+def maskUrl(url=''):
+    """日志脱敏：公开仓库的 Actions 日志人人可见，地址一旦打进日志
+    等于把数据源公开出去。这里只保留协议和长度，不输出域名与路径。"""
+    if not url:
+        return '(empty)'
+    p = urlparse(url)
+    if not p.scheme or not p.netloc:
+        return '(invalid, {} chars)'.format(len(url))
+    return '{}://<hidden>/({} chars)'.format(p.scheme, len(url))
+
+def safeErr(e):
+    """异常文本里常带着完整 URL 或 host=xxx，一并脱敏后再打印。"""
+    s = '{}: {}'.format(type(e).__name__, e)
+    s = re.sub(r'https?://[^\s\'"]+', '<url>', s)
+    s = re.sub(r"host='[^']*'", "host='<hidden>'", s)
+    return s
+
 class _FatalHttpError(Exception):
     """不可重试的 HTTP 错误（如 404），直接放弃当前源。"""
     pass
@@ -72,7 +97,7 @@ def fetch(url, referer=None, retries=RETRIES):
     用流式读取，边读边计时，避免对方慢速滴流时读超时永远不触发、任务被无限拖住。
     """
     if not url or not url.startswith(('http://', 'https://')):
-        raise ValueError('invalid url: {!r}'.format(url))
+        raise ValueError('invalid url {}'.format(maskUrl(url)))
 
     lastError = None
     for attempt in range(1, retries + 1):
@@ -90,7 +115,7 @@ def fetch(url, referer=None, retries=RETRIES):
             with requests.get(url=url, headers=headers, timeout=TIMEOUT, verify=False, stream=True) as response:
                 # 4xx 里只有 403/429 值得重试（多是反爬/限流），其余直接失败省时间
                 if 400 <= response.status_code < 500 and response.status_code not in (403, 429):
-                    raise _FatalHttpError('HTTP {} for {}'.format(response.status_code, url))
+                    raise _FatalHttpError('HTTP {} for {}'.format(response.status_code, maskUrl(url)))
                 # 状态码非 2xx 时抛异常，否则错误页会被静默解析成 0 条
                 response.raise_for_status()
 
@@ -110,8 +135,8 @@ def fetch(url, referer=None, retries=RETRIES):
         except _FatalHttpError:
             raise
         except Exception as e:
-            lastError = '{}: {}'.format(type(e).__name__, e)
-            print('fetch attempt {}/{} failed -> {}: {}'.format(attempt, retries, type(e).__name__, e))
+            lastError = safeErr(e)
+            print('fetch attempt {}/{} failed -> {}'.format(attempt, retries, safeErr(e)))
             if attempt < retries:
                 # 指数退避 + 抖动，避开同 IP / 同时间窗口的限流
                 time.sleep(min(2 ** attempt, 10) + random.uniform(0.5, 1.5))
@@ -264,7 +289,7 @@ def collectFromAny(url, ssqs, label, onlyNew=False):
     try:
         text = fetchText(url)
     except Exception as e:
-        print('Failed requests error, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
+        print('Failed requests error, {}{} \n{}\n'.format(label, maskUrl(url), safeErr(e)))
         return 0, 0
 
     head = text.lstrip()[:1]
@@ -275,7 +300,7 @@ def collectFromAny(url, ssqs, label, onlyNew=False):
             return collectFromHtmlBody(text, ssqs, label)
         return collectFromTextBody(text, ssqs, label, onlyNew)
     except Exception as e:
-        print('Parse failed, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
+        print('Parse failed, {}{} \n{}\n'.format(label, maskUrl(url), safeErr(e)))
         return 0, 0
 
 def start(url, url2, url3=''):
@@ -309,7 +334,7 @@ def start(url, url2, url3=''):
             rowsFromUrl, updates = collectFromAny(url, ssqs, 'url')
             updatesTotal = updatesTotal + updates
         except Exception as e:
-            print('Source url crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
+            print('Source url crashed, keep going: {} \n'.format(safeErr(e)))
 
     # 源2：附加源（一般是轻量接口，每次运行都取，只补新期号）
     if url2 and (budgetLeft() is None or budgetLeft() > 10):
@@ -317,7 +342,7 @@ def start(url, url2, url3=''):
             rowsFromUrl2, updates = collectFromAny(url2, ssqs, 'url2', onlyNew=True)
             updatesTotal = updatesTotal + updates
         except Exception as e:
-            print('Source url2 crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
+            print('Source url2 crashed, keep going: {} \n'.format(safeErr(e)))
 
     # 源3：兜底源，只在主源拿不到数据时启用
     url2Host = urlparse(url2).netloc if url2 else ''
@@ -333,7 +358,7 @@ def start(url, url2, url3=''):
                 rowsFromFallback, updates = collectFromAny(url3, ssqs, 'fallback', onlyNew=True)
                 updatesTotal = updatesTotal + updates
             except Exception as e:
-                print('Source fallback crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
+                print('Source fallback crashed, keep going: {} \n'.format(safeErr(e)))
 
     totalRows = rowsFromUrl2 + rowsFromUrl + rowsFromFallback
     print('rows parsed: url={}, url2={}, fallback={} \n'.format(rowsFromUrl, rowsFromUrl2, rowsFromFallback))
@@ -426,9 +451,11 @@ if __name__ == "__main__":
     parser.add_argument("-u3", "--url3", type=str, required=False, default="", help="兜底源")
     args = parser.parse_args()
     try:
-        print(args)
-        # URL 两端的空白会让 requests 直接报错，先清掉
-        ok = start(args.url.strip(), args.url2.strip(), args.url3.strip())
+        # 只打印每个源是否配置、多长，不打印地址本身（公开仓库日志人人可见）
+        url, url2, url3 = cleanArg(args.url), cleanArg(args.url2), cleanArg(args.url3)
+        for label, value in (('url', url), ('url2', url2), ('url3', url3)):
+            print('source {:<5} configured: {:<3} {}'.format(label, 'yes' if value else 'no', maskUrl(value)))
+        ok = start(url, url2, url3)
         print('Finished')
         if not ok:
             sys.exit(1)
