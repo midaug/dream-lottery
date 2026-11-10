@@ -57,13 +57,14 @@ def cleanArg(value=''):
 
 def maskUrl(url=''):
     """日志脱敏：公开仓库的 Actions 日志人人可见，地址一旦打进日志
-    等于把数据源公开出去。这里只保留协议和长度，不输出域名与路径。"""
+    等于把数据源公开出去。这里只保留协议和长度，不输出域名与路径。
+    注意不要输出 http(s):// 前缀，否则会被 safeErr 的 URL 正则再啃一口。"""
     if not url:
         return '(empty)'
     p = urlparse(url)
     if not p.scheme or not p.netloc:
         return '(invalid, {} chars)'.format(len(url))
-    return '{}://<hidden>/({} chars)'.format(p.scheme, len(url))
+    return '<hidden:{}>/({} chars)'.format(p.scheme, len(url))
 
 def safeErr(e):
     """异常文本里常带着完整 URL 或 host=xxx，一并脱敏后再打印。"""
@@ -347,6 +348,10 @@ def start(url, url2, url3=''):
         rows, updates, status = collectFromAny(srcUrl, ssqs, label, onlyNew)
         updatesTotal = updatesTotal + updates
         summary.append('{:<5} {:<7} rows={:<6} updates={}'.format(label, status, rows, updates))
+        if status != 'ok':
+            # 输出成 workflow 注解：Actions 页面上直接可见，不用翻日志，也不含地址
+            print('::warning::source {} is {} (rows={}), other sources keep running'
+                  .format(label, status, rows))
         return rows
 
     # 源1：主源，全量历史（重量级，一般也最全）
@@ -384,6 +389,7 @@ def start(url, url2, url3=''):
 
     # 所有源都没拿到数据，说明是抓取故障而不是「暂无新开奖」
     if totalRows == 0:
+        print('::error::all configured sources returned no rows, data files untouched')
         print('All sources returned no rows, aborting without touching data files \n')
         return False
 
