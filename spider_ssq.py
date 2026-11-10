@@ -4,6 +4,7 @@ from lxml import etree
 import os
 import re
 import sys
+import json
 import time
 import random
 import argparse
@@ -116,8 +117,30 @@ def fetch(url, referer=None, retries=RETRIES):
                 time.sleep(min(2 ** attempt, 10) + random.uniform(0.5, 1.5))
     raise RuntimeError('all {} attempts failed, last error: {}'.format(retries, lastError))
 
+def fetchText(url):
+    response = fetch(url, referer=refererOf(url))
+    # 国内站点多是 GBK，requests 常猜成 ISO-8859-1，会让中文变成乱码
+    if not response.encoding or response.encoding.lower() in ('iso-8859-1', 'ascii'):
+        response.encoding = response.apparent_encoding or 'utf-8'
+    return response.text
+
+def buildVal(record):
+    """把 (期号, 红球[], 蓝球, 一等奖, 二等奖, 开奖日期) 拼成一行 CSV。"""
+    datetime, red, blue, prize1, prize2, drawdate = record
+    cols = [datetime] + list(red) + [str(blue).strip(), numberStr(prize1), numberStr(prize2), str(drawdate).strip()]
+    return '{}\n'.format(','.join(cols))
+
+def storeRow(ssqs, datetime, val, onlyNew=False):
+    """写入一行，返回是否算作更新。值异常 / 未变化都不算。"""
+    if len(val) < 26:
+        return 0
+    if datetime in ssqs and (onlyNew or ssqs[datetime] == val):
+        return 0
+    ssqs[datetime] = val
+    return 1
+
 def parseCwlRecord(i):
-    """福彩官网接口的字段映射。"""
+    """福彩官网 result[] 结构的字段映射。"""
     datetime = str(i["code"])[2:]
     red = str(i['red']).split(',')
     blue = str(i['blue']).strip()
@@ -127,7 +150,7 @@ def parseCwlRecord(i):
     return datetime, red, blue, prize1, prize2, drawdate
 
 def parseZhcwRecord(i):
-    """中彩网接口的字段映射（期号是 7 位，红球用空格分隔）。"""
+    """中彩网 data[] 结构的字段映射（期号 7 位，红球用空格分隔）。"""
     datetime = str(i['issue'])[2:]
     red = str(i['frontWinningNum']).split()
     blue = str(i['backWinningNum']).strip()
@@ -140,19 +163,27 @@ def parseZhcwRecord(i):
     drawdate = str(i['openTime']).strip()
     return datetime, red, blue, prize1, prize2, drawdate
 
-def collectFromJson(url, ssqs, label, referer=None, onlyNew=False):
-    """解析 JSON 接口，自动识别两种常见返回结构，返回 (解析行数, 更新条数)。
-    支持：福彩官网 result[] 结构、中彩网 data[] 结构。
-    onlyNew=True 时只补写缺失期号，不覆盖已有行，避免不同源金额格式差异来回改动文件。
+def parseTxtLine(line):
+    """纯文本数据行的字段映射。
+    列：期号 日期 红1-6 蓝 红排序... 销售额 奖池 一等奖注数 一等奖金额 二等奖注数 二等奖金额 ...
     """
-    updates = 0
-    rows = 0
-    try:
-        payload = fetch(url, referer=referer).json()
-    except Exception as e:
-        print('Failed requests error, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
-        return 0, 0
+    parts = line.split()
+    if len(parts) < 21:
+        return None
+    issue = parts[0]
+    if not issue.isdigit() or len(issue) < 7:
+        return None
+    datetime = issue[2:]
+    red = parts[2:8]
+    blue = parts[8]
+    drawdate = parts[1]
+    if not all(x.isdigit() for x in red + [blue]):
+        return None
+    prize1 = parts[18]
+    prize2 = parts[20]
+    return datetime, red, blue, prize1, prize2, drawdate
 
+def collectFromJsonBody(payload, ssqs, label, onlyNew=False):
     records = None
     parser = None
     if isinstance(payload, dict) and isinstance(payload.get('result'), list):
@@ -164,88 +195,88 @@ def collectFromJson(url, ssqs, label, referer=None, onlyNew=False):
               .format(label, list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__))
         return 0, 0
 
+    rows = 0
+    updates = 0
     for i in records:
         try:
-            datetime, red, blue, prize1, prize2, drawdate = parser(i)
-            # 期数长度不符合要求时
-            if len(datetime) < 5:
-                continue
-            red.insert(0, datetime)
-            red.append(blue)
-            # 金额一旦带千分位逗号会撑破 CSV 列数，统一清洗
-            red.append(numberStr(prize1))
-            red.append(numberStr(prize2))
-            red.append(drawdate)
-            val = '{}\n'.format(','.join(red))
+            record = parser(i)
         except (KeyError, IndexError, TypeError, AttributeError, ValueError):
-            # 单行异常不影响整个源
             print('Skipped a malformed record from {} \n'.format(label))
             continue
+        if len(record[0]) < 5:
+            continue
         rows = rows + 1
-        # 值异常
-        if len(val) < 26:
-            continue
-        # 已经爬取过的数据不更新
-        if datetime in ssqs and (onlyNew or ssqs[datetime] == val):
-            continue
-        ssqs[datetime] = val
-        updates = updates + 1
+        updates = updates + storeRow(ssqs, record[0], buildVal(record), onlyNew)
 
     print('{} rows = {}, updateSum = {} \n'.format(label, rows, updates))
     return rows, updates
 
-def collectFromHtml(url, ssqs, label):
-    """解析历史开奖表格（HTML），返回 (解析行数, 更新条数)。"""
-    updates = 0
-    rows = 0
-    try:
-        response = fetch(url)
-        # 页面是 GBK 编码，requests 常猜成 ISO-8859-1，会让中文变成乱码
-        if not response.encoding or response.encoding.lower() in ('iso-8859-1', 'ascii'):
-            response.encoding = response.apparent_encoding or 'gbk'
-        selector = etree.HTML(response.text)
-        if selector is None:
-            raise ValueError('page is not valid HTML')
-        trs = selector.xpath('//tr[@class="t_tr1"]')
-        if not trs:
-            print('WARNING {} page has no t_tr1 rows, maybe blocked or layout changed \n'.format(label))
-    except Exception as e:
-        print('Failed requests error, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
+def collectFromHtmlBody(text, ssqs, label):
+    selector = etree.HTML(text)
+    if selector is None:
+        print('WARNING {} page is not valid HTML \n'.format(label))
+        return 0, 0
+    trs = selector.xpath('//tr[@class="t_tr1"]')
+    if not trs:
+        print('WARNING {} page has no t_tr1 rows, maybe blocked or layout changed \n'.format(label))
         return 0, 0
 
+    rows = 0
+    updates = 0
     for i in trs:
         try:
-            datetime = replaceStr(i.xpath('td/text()')[0])
-            # 期数长度不符合要求时
-            if len(datetime) < 5:
-                continue
-            red = i.xpath('td/text()')[1:7]
-            blue = i.xpath('td/text()')[7]
-            prize1 = replaceStr(i.xpath('td/text()')[11])
-            prize2 = replaceStr(i.xpath('td/text()')[13])
-            drawdate = replaceStr(i.xpath('td/text()')[15])
-            red.insert(0, datetime)
-            red.append(blue)
-            red.append(prize1)
-            red.append(prize2)
-            red.append(drawdate)
-            val = '{}\n'.format(','.join(red))
+            tds = i.xpath('td/text()')
+            record = (replaceStr(tds[0]), [replaceStr(x) for x in tds[1:7]],
+                      replaceStr(tds[7]), replaceStr(tds[11]), replaceStr(tds[13]), replaceStr(tds[15]))
         except (KeyError, IndexError, TypeError, AttributeError):
             # 列数变化时跳过该行，不要让整个源挂掉
             print('Skipped a malformed row from {} \n'.format(label))
             continue
+        if len(record[0]) < 5:
+            continue
         rows = rows + 1
-        # 值异常
-        if len(val) < 26:
-            continue
-        # 已经爬取过的数据不更新
-        if datetime in ssqs and ssqs[datetime] == val:
-            continue
-        ssqs[datetime] = val
-        updates = updates + 1
+        updates = updates + storeRow(ssqs, record[0], buildVal(record))
 
     print('{} rows = {}, updateSum = {} \n'.format(label, rows, updates))
     return rows, updates
+
+def collectFromTextBody(text, ssqs, label, onlyNew=False):
+    rows = 0
+    updates = 0
+    for line in text.splitlines():
+        record = parseTxtLine(line.strip())
+        if not record:
+            continue
+        if len(record[0]) < 5:
+            continue
+        rows = rows + 1
+        updates = updates + storeRow(ssqs, record[0], buildVal(record), onlyNew)
+
+    if rows == 0:
+        print('WARNING {} returned no parsable rows, source may be broken \n'.format(label))
+    print('{} rows = {}, updateSum = {} \n'.format(label, rows, updates))
+    return rows, updates
+
+def collectFromAny(url, ssqs, label, onlyNew=False):
+    """抓一个源并自动识别格式：JSON / HTML 表格 / 纯文本。
+    只认内容不认地址，换源时不用改代码。
+    """
+    try:
+        text = fetchText(url)
+    except Exception as e:
+        print('Failed requests error, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
+        return 0, 0
+
+    head = text.lstrip()[:1]
+    try:
+        if head in ('{', '['):
+            return collectFromJsonBody(json.loads(text), ssqs, label, onlyNew)
+        if '<tr' in text or '<table' in text:
+            return collectFromHtmlBody(text, ssqs, label)
+        return collectFromTextBody(text, ssqs, label, onlyNew)
+    except Exception as e:
+        print('Parse failed, {}={} \n{}: {} \n'.format(label, url, type(e).__name__, e))
+        return 0, 0
 
 def start(url, url2, url3=''):
     _DEADLINE[0] = time.time() + TOTAL_BUDGET_SECONDS
@@ -272,24 +303,23 @@ def start(url, url2, url3=''):
     rowsFromFallback = 0
     updatesTotal = 0
 
-    # 源1：配置的 JSON 接口（可选，通常是最轻量的一个源）
-    if url2 and (budgetLeft() is None or budgetLeft() > 10):
-        try:
-            rowsFromUrl2, updates = collectFromJson(url2, ssqs, 'url2', referer=refererOf(url2))
-            updatesTotal = updatesTotal + updates
-        except Exception as e:
-            print('Source url2 crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
-
-    # 源2：历史开奖页（HTML）
+    # 源1：主源（全量历史，重量级）
     if url and (budgetLeft() is None or budgetLeft() > 10):
         try:
-            rowsFromUrl, updates = collectFromHtml(url, ssqs, 'url')
+            rowsFromUrl, updates = collectFromAny(url, ssqs, 'url')
             updatesTotal = updatesTotal + updates
         except Exception as e:
             print('Source url crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
 
-    # 源3：备用接口（由 secret 提供，支持 url3 参数）。只在主源不可用时启用，
-    # 既能兜住主源的限流/改版，又不会每次运行都多发一个大请求
+    # 源2：附加源（一般是轻量接口，每次运行都取，只补新期号）
+    if url2 and (budgetLeft() is None or budgetLeft() > 10):
+        try:
+            rowsFromUrl2, updates = collectFromAny(url2, ssqs, 'url2', onlyNew=True)
+            updatesTotal = updatesTotal + updates
+        except Exception as e:
+            print('Source url2 crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
+
+    # 源3：兜底源，只在主源拿不到数据时启用
     url2Host = urlparse(url2).netloc if url2 else ''
     url3Host = urlparse(url3).netloc if url3 else ''
     if ((not url) or (url and rowsFromUrl == 0)) and (budgetLeft() is None or budgetLeft() > 10):
@@ -300,13 +330,13 @@ def start(url, url2, url3=''):
         else:
             print('Activating fallback source \n')
             try:
-                rowsFromFallback, updates = collectFromJson(url3, ssqs, 'fallback', referer=refererOf(url3), onlyNew=True)
+                rowsFromFallback, updates = collectFromAny(url3, ssqs, 'fallback', onlyNew=True)
                 updatesTotal = updatesTotal + updates
             except Exception as e:
                 print('Source fallback crashed, keep going: {}: {} \n'.format(type(e).__name__, e))
 
     totalRows = rowsFromUrl2 + rowsFromUrl + rowsFromFallback
-    print('rows parsed: url2={}, url={}, fallback={} \n'.format(rowsFromUrl2, rowsFromUrl, rowsFromFallback))
+    print('rows parsed: url={}, url2={}, fallback={} \n'.format(rowsFromUrl, rowsFromUrl2, rowsFromFallback))
 
     # 所有源都没拿到数据，说明是抓取故障而不是「暂无新开奖」
     if totalRows == 0:
@@ -319,10 +349,10 @@ def start(url, url2, url3=''):
         print('Refuse to overwrite: only {} rows collected while history is missing \n'.format(validRows))
         return False
 
-    # 期号断层预警：pageSize/limit 太小会在历史中留下空洞
+    # 期号断层预警
     gaps = findGaps(ssqs)
     if gaps:
-        print('WARNING missing issues detected (increase pageSize/limit): {} \n'.format(gaps))
+        print('WARNING missing issues detected: {} \n'.format(gaps))
 
     # 内容没变就不写盘，避免定时任务产生空提交和无意义的文件改动
     if not ssqChanged(ssqPath, ssqs):
@@ -391,9 +421,9 @@ def findGaps(ssqs):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-u", "--url", type=str, required=False, default="", help="url")
-    parser.add_argument("-u2", "--url2", type=str, required=False, default="", help="url2")
-    parser.add_argument("-u3", "--url3", type=str, required=False, default="", help="url3 fallback")
+    parser.add_argument("-u", "--url", type=str, required=False, default="", help="主源")
+    parser.add_argument("-u2", "--url2", type=str, required=False, default="", help="附加源")
+    parser.add_argument("-u3", "--url3", type=str, required=False, default="", help="兜底源")
     args = parser.parse_args()
     try:
         print(args)
