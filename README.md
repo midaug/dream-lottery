@@ -58,20 +58,16 @@ python spider_ssq.py --show-sources
 python spider_ssq.py -u "https://.../history.php" -u2 "" -u3 ""
 ```
 
-### dream-lottery-web
-dream-lottery-web 是一个spring boot web服务，拥有查询最新开奖信息和拍照识别中奖功能
-页面地址：http://127.0.0.1:8080/ssq/index
-
-OCR图片文字识别集成的百度OCR SDK，百度的OCR个人认证可以领取每个月1000次的免费查询，需要使用到OCR功能需要传入以下3个参数
-BAIDU_OCR_APPID="111"
-BAIDU_OCR_APPKEY="222"
-BAIDU_OCR_SECRET="333"
+### 仓库结构
 
 ```
-docker 快速启动
-
-docker run --restart=always --name dream-lottery-web -p 8080:8080 -e BAIDU_OCR_APPID="111" -e BAIDU_OCR_APPKEY="222" -e BAIDU_OCR_SECRET="333" midaug/dream-lottery-web:latest
+.
+├── .github/workflows/
+│   ├── start_spider_ssq.yml   # 定时采集开奖数据并提交
+│   └── sync2gitee.yml         # 同步仓库到 Gitee
+├── spider_data/               # 采集产物（txt / js / json）
+├── spider_ssq.py              # 采集脚本
+└── README.md
 ```
 
-#### 效果图
-![界面](./dream-lottery-web/images/xg1.png)
+本仓库只负责开奖数据的采集与发布，不包含网页服务。前端直接读取 `spider_data/` 下的文件即可。

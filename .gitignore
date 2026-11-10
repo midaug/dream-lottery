@@ -1,39 +1,26 @@
-HELP.md
-target/
-cache/
-.mvn/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-
 .DS_Store
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
+### IDE ###
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
 .project
-.settings
+.classpath
+.apt_generated
+.factorypath
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
-.vscode/
+### Python ###
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 Pipfile
 Pipfile.lock
+
+### 采集临时文件（原子写中断时会残留）###
+*.tmp
