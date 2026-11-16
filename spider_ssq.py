@@ -8,6 +8,7 @@ import random
 import argparse
 import traceback
 import warnings
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 # 只用 --show-sources 查看内置地址时不需要第三方库，避免没装依赖就跑不了
@@ -29,9 +30,15 @@ USER_AGENTS = [
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36',
 ]
 TIMEOUT = (10, 25)          # (连接超时, 读取超时)
-RETRIES = 3
-PER_ATTEMPT_SECONDS = 60    # 单次请求的读取时长上限，防慢速滴流把任务拖死
-TOTAL_BUDGET_SECONDS = 360  # 整个抓取过程的硬预算
+RETRIES = 2
+PER_ATTEMPT_SECONDS = 45    # 单次请求的读取时长上限，防慢速滴流把任务拖死
+TOTAL_BUDGET_SECONDS = 300  # 整个抓取过程的硬预算
+
+# 双色球：每周二、周四、周日 21:15 开奖，官方公布通常滞后十几分钟
+DRAW_WEEKDAYS = (1, 3, 6)
+DRAW_HOUR, DRAW_MINUTE = 21, 15
+PUBLISH_GRACE_MINUTES = 30
+CST = timezone(timedelta(hours=8))
 
 _DEADLINE = [None]
 
@@ -39,6 +46,34 @@ def budgetLeft():
     if not _DEADLINE[0]:
         return None
     return _DEADLINE[0] - time.time()
+
+def latestExpectedDrawDate(now=None):
+    """此刻「理应已经开奖并公布」的最近一期开奖日期。
+    用来区分两种情况：抓不到数据时，是真的漏了开奖，还是本来就没有新开奖。"""
+    now = now or datetime.now(CST)
+    for back in range(0, 10):
+        day = (now - timedelta(days=back)).date()
+        if day.weekday() not in DRAW_WEEKDAYS:
+            continue
+        publishAt = datetime(day.year, day.month, day.day, DRAW_HOUR, DRAW_MINUTE, tzinfo=CST) \
+            + timedelta(minutes=PUBLISH_GRACE_MINUTES)
+        if now >= publishAt:
+            return day.isoformat()
+    return ''
+
+def latestStoredDate(ssqs):
+    """本地已落盘数据里最新一期的开奖日期（YYYY-MM-DD）。"""
+    best = ''
+    for key, val in ssqs.items():
+        if len(key) != 5 or not key.isdigit():
+            continue
+        parts = str(val).rstrip('\n').split(',')
+        if len(parts) < 11:
+            continue
+        d = parts[10].strip()
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', d) and d > best:
+            best = d
+    return best
 
 def refererOf(url):
     # 用来源自身的站点根作为 Referer，避免在代码里写死具体域名
@@ -388,9 +423,20 @@ def start(url, url2, url3=''):
         print('  - {}'.format(item))
     print('')
 
-    # 所有源都没拿到数据，说明是抓取故障而不是「暂无新开奖」
+    # 所有源都没拿到数据：先判断到底是真的漏了开奖，还是只是网络抖动
     if totalRows == 0:
-        print('::error::all configured sources returned no rows, data files untouched')
+        stored = latestStoredDate(ssqs) if historyExists else ''
+        expected = latestExpectedDrawDate()
+        if stored and expected and stored >= expected:
+            # 本地已有数据覆盖了最近一次应开奖的期号，抓不到不影响正确性，
+            # 下一轮（10 分钟后）还会重试；这种情况不该把任务判成失败
+            print('::warning::all sources unreachable, but local data already covers the draw on {} '
+                  '(expected by now: {}); retry on next run'.format(stored, expected))
+            print('All sources returned no rows, local data is already up to date ({}) -> transient, no failure\n'
+                  .format(stored))
+            return True
+        print('::error::all sources returned no rows and local data is behind (stored={}, expected={})'
+              .format(stored or 'none', expected or 'n/a'))
         print('All sources returned no rows, aborting without touching data files \n')
         return False
 
